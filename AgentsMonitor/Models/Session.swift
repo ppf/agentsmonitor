@@ -15,7 +15,7 @@ struct Session: Identifiable, Hashable {
         id: UUID = UUID(),
         name: String,
         status: SessionStatus = .running,
-        agentType: AgentType = .claude,
+        agentType: AgentType = .claudeCode,
         startedAt: Date = Date(),
         endedAt: Date? = nil,
         messages: [Message] = [],
@@ -83,13 +83,51 @@ enum SessionStatus: String, CaseIterable, Codable {
 }
 
 enum AgentType: String, CaseIterable, Codable {
-    case claude = "Claude"
+    case claudeCode = "Claude Code"
+    case codex = "Codex"
     case custom = "Custom Agent"
 
     var icon: String {
         switch self {
-        case .claude: return "brain"
+        case .claudeCode: return "brain"
+        case .codex: return "chevron.left.forwardslash.chevron.right"
         case .custom: return "cpu"
+        }
+    }
+
+    var displayName: String {
+        rawValue
+    }
+
+    var defaultHost: String {
+        switch self {
+        case .claudeCode: return "localhost"
+        case .codex: return "localhost"
+        case .custom: return "localhost"
+        }
+    }
+
+    var defaultPort: Int {
+        switch self {
+        case .claudeCode: return 8080
+        case .codex: return 8081
+        case .custom: return 9000
+        }
+    }
+
+    var defaultPath: String {
+        switch self {
+        case .claudeCode: return "/ws/claude"
+        case .codex: return "/ws/codex"
+        case .custom: return "/ws"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .claudeCode: return "purple"
+        case .codex: return "green"
+        case .custom: return "blue"
         }
     }
 }

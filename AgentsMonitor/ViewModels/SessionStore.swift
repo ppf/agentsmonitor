@@ -388,10 +388,11 @@ final class SessionStore {
     }
 
     private func loadMockData() {
+        // Claude Code session - running
         let session1 = Session(
             name: "Fix authentication bug",
             status: .running,
-            agentType: .claude,
+            agentType: .claudeCode,
             startedAt: Date().addingTimeInterval(-3600),
             messages: [
                 Message(role: .user, content: "Fix the authentication bug in the login flow", timestamp: Date().addingTimeInterval(-3600)),
@@ -406,29 +407,51 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 15420, inputTokens: 8200, outputTokens: 7220, toolCallCount: 3, errorCount: 0, apiCalls: 5)
         )
 
+        // Codex session - completed
         let session2 = Session(
-            name: "Add dark mode support",
+            name: "Generate unit tests",
             status: .completed,
-            agentType: .claude,
+            agentType: .codex,
             startedAt: Date().addingTimeInterval(-7200),
             endedAt: Date().addingTimeInterval(-5400),
             messages: [
-                Message(role: .user, content: "Add dark mode support to the settings page", timestamp: Date().addingTimeInterval(-7200)),
-                Message(role: .assistant, content: "I'll implement dark mode support for the settings page. This will involve adding a theme toggle and updating the CSS variables.", timestamp: Date().addingTimeInterval(-7190)),
-                Message(role: .assistant, content: "Dark mode has been successfully implemented. The theme toggle is now available in settings and persists across sessions.", timestamp: Date().addingTimeInterval(-5400))
+                Message(role: .user, content: "Generate comprehensive unit tests for the UserService class", timestamp: Date().addingTimeInterval(-7200)),
+                Message(role: .assistant, content: "I'll analyze the UserService class and generate unit tests covering all public methods and edge cases.", timestamp: Date().addingTimeInterval(-7190)),
+                Message(role: .assistant, content: "Successfully generated 24 unit tests for UserService with 100% coverage of public methods.", timestamp: Date().addingTimeInterval(-5400))
             ],
             toolCalls: [
-                ToolCall(name: "Read", input: "src/settings/Settings.tsx", output: "// Settings component", startedAt: Date().addingTimeInterval(-7180), completedAt: Date().addingTimeInterval(-7175), status: .completed),
-                ToolCall(name: "Edit", input: "src/settings/Settings.tsx", output: "Added theme toggle", startedAt: Date().addingTimeInterval(-7100), completedAt: Date().addingTimeInterval(-7050), status: .completed),
-                ToolCall(name: "Write", input: "src/styles/dark-theme.css", output: "Created dark theme styles", startedAt: Date().addingTimeInterval(-6800), completedAt: Date().addingTimeInterval(-6750), status: .completed)
+                ToolCall(name: "Read", input: "src/services/UserService.ts", output: "// UserService implementation", startedAt: Date().addingTimeInterval(-7180), completedAt: Date().addingTimeInterval(-7175), status: .completed),
+                ToolCall(name: "Write", input: "tests/UserService.test.ts", output: "Created test file", startedAt: Date().addingTimeInterval(-6800), completedAt: Date().addingTimeInterval(-6750), status: .completed),
+                ToolCall(name: "Bash", input: "npm test -- UserService", output: "All 24 tests passed", startedAt: Date().addingTimeInterval(-6700), completedAt: Date().addingTimeInterval(-6650), status: .completed)
+            ],
+            metrics: SessionMetrics(totalTokens: 32150, inputTokens: 14200, outputTokens: 17950, toolCallCount: 5, errorCount: 0, apiCalls: 8)
+        )
+
+        // Claude Code session - completed
+        let session3 = Session(
+            name: "Add dark mode support",
+            status: .completed,
+            agentType: .claudeCode,
+            startedAt: Date().addingTimeInterval(-10800),
+            endedAt: Date().addingTimeInterval(-9000),
+            messages: [
+                Message(role: .user, content: "Add dark mode support to the settings page", timestamp: Date().addingTimeInterval(-10800)),
+                Message(role: .assistant, content: "I'll implement dark mode support for the settings page. This will involve adding a theme toggle and updating the CSS variables.", timestamp: Date().addingTimeInterval(-10790)),
+                Message(role: .assistant, content: "Dark mode has been successfully implemented. The theme toggle is now available in settings and persists across sessions.", timestamp: Date().addingTimeInterval(-9000))
+            ],
+            toolCalls: [
+                ToolCall(name: "Read", input: "src/settings/Settings.tsx", output: "// Settings component", startedAt: Date().addingTimeInterval(-10780), completedAt: Date().addingTimeInterval(-10775), status: .completed),
+                ToolCall(name: "Edit", input: "src/settings/Settings.tsx", output: "Added theme toggle", startedAt: Date().addingTimeInterval(-10500), completedAt: Date().addingTimeInterval(-10450), status: .completed),
+                ToolCall(name: "Write", input: "src/styles/dark-theme.css", output: "Created dark theme styles", startedAt: Date().addingTimeInterval(-10000), completedAt: Date().addingTimeInterval(-9950), status: .completed)
             ],
             metrics: SessionMetrics(totalTokens: 28450, inputTokens: 12300, outputTokens: 16150, toolCallCount: 8, errorCount: 0, apiCalls: 12)
         )
 
-        let session3 = Session(
+        // Codex session - failed
+        let session4 = Session(
             name: "Database migration failed",
             status: .failed,
-            agentType: .claude,
+            agentType: .codex,
             startedAt: Date().addingTimeInterval(-1800),
             endedAt: Date().addingTimeInterval(-1200),
             messages: [
@@ -442,10 +465,11 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 5200, inputTokens: 2100, outputTokens: 3100, toolCallCount: 1, errorCount: 1, apiCalls: 3)
         )
 
-        let session4 = Session(
+        // Claude Code session - waiting
+        let session5 = Session(
             name: "Code review PR #142",
             status: .waiting,
-            agentType: .claude,
+            agentType: .claudeCode,
             startedAt: Date().addingTimeInterval(-300),
             messages: [
                 Message(role: .user, content: "Review PR #142 and provide feedback", timestamp: Date().addingTimeInterval(-300))
@@ -454,7 +478,24 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 0, inputTokens: 0, outputTokens: 0, toolCallCount: 0, errorCount: 0, apiCalls: 0)
         )
 
-        sessions = [session1, session2, session3, session4]
+        // Codex session - running
+        let session6 = Session(
+            name: "Refactor API endpoints",
+            status: .running,
+            agentType: .codex,
+            startedAt: Date().addingTimeInterval(-900),
+            messages: [
+                Message(role: .user, content: "Refactor the REST API endpoints to follow OpenAPI 3.0 spec", timestamp: Date().addingTimeInterval(-900)),
+                Message(role: .assistant, content: "I'll refactor the API endpoints to comply with OpenAPI 3.0 specification. Starting with route analysis.", timestamp: Date().addingTimeInterval(-890))
+            ],
+            toolCalls: [
+                ToolCall(name: "Glob", input: "src/routes/**/*.ts", output: "Found 12 route files", startedAt: Date().addingTimeInterval(-880), completedAt: Date().addingTimeInterval(-875), status: .completed),
+                ToolCall(name: "Read", input: "src/routes/users.ts", startedAt: Date().addingTimeInterval(-870), status: .running)
+            ],
+            metrics: SessionMetrics(totalTokens: 8500, inputTokens: 4200, outputTokens: 4300, toolCallCount: 2, errorCount: 0, apiCalls: 4)
+        )
+
+        sessions = [session1, session2, session3, session4, session5, session6]
         selectedSessionId = session1.id
     }
 }

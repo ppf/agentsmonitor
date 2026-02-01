@@ -596,8 +596,27 @@ final class SessionModelTests: XCTestCase {
     }
 
     func testAgentTypeProperties() {
-        XCTAssertEqual(AgentType.claude.icon, "brain")
+        XCTAssertEqual(AgentType.claudeCode.icon, "brain")
+        XCTAssertEqual(AgentType.codex.icon, "chevron.left.forwardslash.chevron.right")
         XCTAssertEqual(AgentType.custom.icon, "cpu")
+    }
+
+    func testAgentTypeDisplayNames() {
+        XCTAssertEqual(AgentType.claudeCode.displayName, "Claude Code")
+        XCTAssertEqual(AgentType.codex.displayName, "Codex")
+        XCTAssertEqual(AgentType.custom.displayName, "Custom Agent")
+    }
+
+    func testAgentTypeDefaultPorts() {
+        XCTAssertEqual(AgentType.claudeCode.defaultPort, 8080)
+        XCTAssertEqual(AgentType.codex.defaultPort, 8081)
+        XCTAssertEqual(AgentType.custom.defaultPort, 9000)
+    }
+
+    func testAgentTypeColors() {
+        XCTAssertEqual(AgentType.claudeCode.color, "purple")
+        XCTAssertEqual(AgentType.codex.color, "green")
+        XCTAssertEqual(AgentType.custom.color, "blue")
     }
 }
 

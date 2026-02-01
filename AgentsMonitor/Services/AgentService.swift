@@ -43,18 +43,62 @@ actor AgentService: AgentServiceProtocol {
         var reconnectAttempts: Int
         var reconnectDelay: TimeInterval
         var pingInterval: TimeInterval
+        var agentType: AgentType
 
         static var `default`: Config {
             Config(
                 host: "localhost",
                 port: 8080,
-                path: "/ws",
+                path: "/ws/claude",
                 useTLS: false,
                 apiKey: nil,
                 reconnectAttempts: 5,
                 reconnectDelay: 2.0,
-                pingInterval: 30.0
+                pingInterval: 30.0,
+                agentType: .claudeCode
             )
+        }
+
+        /// Configuration preset for Claude Code agent
+        static var claudeCode: Config {
+            Config(
+                host: "localhost",
+                port: 8080,
+                path: "/ws/claude",
+                useTLS: false,
+                apiKey: nil,
+                reconnectAttempts: 5,
+                reconnectDelay: 2.0,
+                pingInterval: 30.0,
+                agentType: .claudeCode
+            )
+        }
+
+        /// Configuration preset for OpenAI Codex agent
+        static var codex: Config {
+            Config(
+                host: "localhost",
+                port: 8081,
+                path: "/ws/codex",
+                useTLS: false,
+                apiKey: nil,
+                reconnectAttempts: 5,
+                reconnectDelay: 2.0,
+                pingInterval: 30.0,
+                agentType: .codex
+            )
+        }
+
+        /// Create config for a specific agent type
+        static func forAgent(_ agentType: AgentType) -> Config {
+            switch agentType {
+            case .claudeCode:
+                return .claudeCode
+            case .codex:
+                return .codex
+            case .custom:
+                return .default
+            }
         }
 
         var url: URL? {
