@@ -7,32 +7,37 @@ struct SessionListView: View {
     var body: some View {
         @Bindable var store = sessionStore
 
-        let filteredSessions = sessionStore.filteredSessions(
+        // Use optimized cached filtering that partitions in a single pass
+        let (activeSessions, otherSessions) = sessionStore.filteredSessions(
             searchText: appState.searchText,
             status: appState.filterStatus,
             sortOrder: appState.sortOrder
         )
 
+        let isEmpty = activeSessions.isEmpty && otherSessions.isEmpty
+
         List(selection: $store.selectedSessionId) {
-            if !sessionStore.runningSessions.isEmpty {
+            if !activeSessions.isEmpty {
                 Section("Active") {
-                    ForEach(filteredSessions.filter { $0.status == .running || $0.status == .waiting }) { session in
+                    ForEach(activeSessions) { session in
                         SessionRowView(session: session)
                             .tag(session.id)
                     }
                 }
             }
 
-            Section("Sessions") {
-                ForEach(filteredSessions.filter { $0.status != .running && $0.status != .waiting }) { session in
-                    SessionRowView(session: session)
-                        .tag(session.id)
+            if !otherSessions.isEmpty {
+                Section("Sessions") {
+                    ForEach(otherSessions) { session in
+                        SessionRowView(session: session)
+                            .tag(session.id)
+                    }
                 }
             }
         }
         .listStyle(.sidebar)
         .overlay {
-            if filteredSessions.isEmpty {
+            if isEmpty {
                 ContentUnavailableView {
                     Label("No Sessions", systemImage: "tray")
                 } description: {
@@ -46,6 +51,7 @@ struct SessionListView: View {
                 SessionContextMenu(session: session)
             }
         }
+        .accessibilityLabel("Sessions list")
     }
 }
 
@@ -78,10 +84,14 @@ struct SessionRowView: View {
             if session.status == .running {
                 ProgressView()
                     .scaleEffect(0.6)
+                    .accessibilityLabel("Session in progress")
             }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(session.name), \(session.status.rawValue), duration \(session.formattedDuration)")
+        .accessibilityHint("Double-tap to view session details")
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) {
                 sessionStore.deleteSession(session)
@@ -95,10 +105,10 @@ struct SessionRowView: View {
 struct SessionContextMenu: View {
     let session: Session
     @Environment(SessionStore.self) private var sessionStore
+    @State private var actionError: String?
 
     var body: some View {
         Button {
-            // Copy session ID
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(session.id.uuidString, forType: .string)
         } label: {
@@ -109,7 +119,13 @@ struct SessionContextMenu: View {
 
         if session.status == .running {
             Button {
-                // Pause session
+                Task {
+                    do {
+                        try await sessionStore.pauseSession(session)
+                    } catch {
+                        actionError = error.localizedDescription
+                    }
+                }
             } label: {
                 Label("Pause", systemImage: "pause")
             }
@@ -117,7 +133,13 @@ struct SessionContextMenu: View {
 
         if session.status == .paused {
             Button {
-                // Resume session
+                Task {
+                    do {
+                        try await sessionStore.resumeSession(session)
+                    } catch {
+                        actionError = error.localizedDescription
+                    }
+                }
             } label: {
                 Label("Resume", systemImage: "play")
             }
@@ -125,7 +147,13 @@ struct SessionContextMenu: View {
 
         if session.status == .failed {
             Button {
-                // Retry session
+                Task {
+                    do {
+                        try await sessionStore.retrySession(session)
+                    } catch {
+                        actionError = error.localizedDescription
+                    }
+                }
             } label: {
                 Label("Retry", systemImage: "arrow.clockwise")
             }

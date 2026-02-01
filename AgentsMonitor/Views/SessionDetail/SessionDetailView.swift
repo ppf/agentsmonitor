@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionDetailView: View {
     let session: Session
     @Environment(AppState.self) private var appState
+    @Environment(SessionStore.self) private var sessionStore
 
     var body: some View {
         @Bindable var state = appState
@@ -69,6 +70,8 @@ struct SessionHeaderView: View {
         }
         .padding()
         .background(.bar)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Session \(session.name), status \(session.status.rawValue), duration \(session.formattedDuration)")
     }
 }
 
@@ -104,6 +107,8 @@ struct QuickMetricsView: View {
                 )
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(metrics.formattedTokens) tokens, \(metrics.toolCallCount) tool calls, \(metrics.apiCalls) API calls\(metrics.errorCount > 0 ? ", \(metrics.errorCount) errors" : "")")
     }
 }
 
@@ -132,50 +137,149 @@ struct MetricItem: View {
 
 struct SessionActionButtons: View {
     let session: Session
+    @Environment(SessionStore.self) private var sessionStore
+    @State private var showingExportPanel = false
+    @State private var showingCancelConfirmation = false
+    @State private var showingDeleteConfirmation = false
+    @State private var actionError: String?
+    @State private var showingError = false
 
     var body: some View {
         HStack(spacing: 8) {
             if session.status == .running {
                 Button {
-                    // Pause action
+                    Task {
+                        await performAction {
+                            try await sessionStore.pauseSession(session)
+                        }
+                    }
                 } label: {
                     Image(systemName: "pause.fill")
                 }
                 .help("Pause Session")
+                .accessibilityLabel("Pause Session")
+                .accessibilityHint("Pauses the running session")
 
-                Button(role: .destructive) {
-                    // Cancel action
+                Button {
+                    showingCancelConfirmation = true
                 } label: {
                     Image(systemName: "xmark")
                 }
                 .help("Cancel Session")
+                .accessibilityLabel("Cancel Session")
+                .accessibilityHint("Cancels and stops the session")
             }
 
             if session.status == .paused {
                 Button {
-                    // Resume action
+                    Task {
+                        await performAction {
+                            try await sessionStore.resumeSession(session)
+                        }
+                    }
                 } label: {
                     Image(systemName: "play.fill")
                 }
                 .help("Resume Session")
+                .accessibilityLabel("Resume Session")
+                .accessibilityHint("Resumes the paused session")
             }
 
             if session.status == .failed {
                 Button {
-                    // Retry action
+                    Task {
+                        await performAction {
+                            try await sessionStore.retrySession(session)
+                        }
+                    }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Retry Session")
+                .accessibilityLabel("Retry Session")
+                .accessibilityHint("Retries the failed session")
             }
 
             Button {
-                // Export action
+                showingExportPanel = true
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
             .help("Export Session")
+            .accessibilityLabel("Export Session")
+            .accessibilityHint("Exports session data to a file")
         }
+        .confirmationDialog("Cancel Session?", isPresented: $showingCancelConfirmation) {
+            Button("Cancel Session", role: .destructive) {
+                Task {
+                    await performAction {
+                        try await sessionStore.cancelSession(session)
+                    }
+                }
+            }
+            Button("Keep Running", role: .cancel) {}
+        } message: {
+            Text("This will stop the session and mark it as failed. This action cannot be undone.")
+        }
+        .fileExporter(
+            isPresented: $showingExportPanel,
+            document: SessionDocument(session: session),
+            contentType: .json,
+            defaultFilename: "\(session.name.replacingOccurrences(of: " ", with: "-")).json"
+        ) { result in
+            switch result {
+            case .success(let url):
+                AppLogger.logPersistenceSaved(session.id)
+            case .failure(let error):
+                actionError = error.localizedDescription
+                showingError = true
+            }
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("Dismiss") {
+                actionError = nil
+            }
+        } message: {
+            Text(actionError ?? "An unknown error occurred")
+        }
+    }
+
+    private func performAction(_ action: @escaping () async throws -> Void) async {
+        do {
+            try await action()
+        } catch {
+            actionError = error.localizedDescription
+            showingError = true
+        }
+    }
+}
+
+// MARK: - Session Document for Export
+
+import UniformTypeIdentifiers
+
+struct SessionDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    let session: Session
+
+    init(session: Session) {
+        self.session = session
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        session = try JSONDecoder().decode(Session.self, from: data)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(session)
+        return FileWrapper(regularFileWithContents: data)
     }
 }
 

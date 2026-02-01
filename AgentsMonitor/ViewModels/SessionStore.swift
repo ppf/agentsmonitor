@@ -3,16 +3,49 @@ import SwiftUI
 
 @Observable
 final class SessionStore {
-    var sessions: [Session] = []
+    // MARK: - Published State
+
+    private(set) var sessions: [Session] = []
     var selectedSessionId: UUID?
     var isLoading: Bool = false
     var error: String?
 
-    private let agentService = AgentService()
+    // MARK: - Pagination
 
-    init() {
-        loadMockData()
+    private let pageSize = 50
+    private var currentPage = 0
+    private var hasMorePages = true
+
+    // MARK: - Cache
+
+    private var filteredCache: FilteredSessionsCache?
+
+    private struct FilteredSessionsCache {
+        let searchText: String
+        let status: SessionStatus?
+        let sortOrder: AppState.SortOrder
+        let result: [Session]
+        let activeSessions: [Session]
+        let otherSessions: [Session]
     }
+
+    // MARK: - Dependencies
+
+    private let agentService: AgentService
+    private let persistence: SessionPersistence?
+
+    // MARK: - Initialization
+
+    init(agentService: AgentService = AgentService(), persistence: SessionPersistence? = SessionPersistence.shared) {
+        self.agentService = agentService
+        self.persistence = persistence
+
+        Task {
+            await loadPersistedSessions()
+        }
+    }
+
+    // MARK: - Computed Properties
 
     var selectedSession: Session? {
         get {
@@ -36,7 +69,22 @@ final class SessionStore {
         sessions.filter { $0.status == .failed }
     }
 
-    func filteredSessions(searchText: String, status: SessionStatus?, sortOrder: AppState.SortOrder) -> [Session] {
+    var waitingSessions: [Session] {
+        sessions.filter { $0.status == .waiting }
+    }
+
+    // MARK: - Filtered Sessions with Caching
+
+    func filteredSessions(searchText: String, status: SessionStatus?, sortOrder: AppState.SortOrder) -> (active: [Session], other: [Session]) {
+        // Return cached result if inputs haven't changed
+        if let cache = filteredCache,
+           cache.searchText == searchText,
+           cache.status == status,
+           cache.sortOrder == sortOrder {
+            return (cache.activeSessions, cache.otherSessions)
+        }
+
+        // Compute filtered results
         var result = sessions
 
         if !searchText.isEmpty {
@@ -61,8 +109,32 @@ final class SessionStore {
             result.sort { $0.status.rawValue < $1.status.rawValue }
         }
 
-        return result
+        // Partition into active and other sessions in a single pass
+        var activeSessions: [Session] = []
+        var otherSessions: [Session] = []
+
+        for session in result {
+            if session.status == .running || session.status == .waiting {
+                activeSessions.append(session)
+            } else {
+                otherSessions.append(session)
+            }
+        }
+
+        // Cache the result
+        filteredCache = FilteredSessionsCache(
+            searchText: searchText,
+            status: status,
+            sortOrder: sortOrder,
+            result: result,
+            activeSessions: activeSessions,
+            otherSessions: otherSessions
+        )
+
+        return (activeSessions, otherSessions)
     }
+
+    // MARK: - Session CRUD
 
     func createNewSession() {
         let session = Session(
@@ -71,44 +143,118 @@ final class SessionStore {
         )
         sessions.insert(session, at: 0)
         selectedSessionId = session.id
+        invalidateCache()
+
+        AppLogger.logSessionCreated(session)
+        persistSession(session)
     }
 
     func deleteSession(_ session: Session) {
-        sessions.removeAll { $0.id == session.id }
-        if selectedSessionId == session.id {
+        let sessionId = session.id
+        sessions.removeAll { $0.id == sessionId }
+
+        if selectedSessionId == sessionId {
             selectedSessionId = sessions.first?.id
+        }
+        invalidateCache()
+
+        AppLogger.logSessionDeleted(sessionId)
+
+        Task {
+            try? await persistence?.deleteSession(sessionId)
         }
     }
 
     func clearCompletedSessions() {
+        let completedIds = sessions.filter { $0.status == .completed }.map { $0.id }
         sessions.removeAll { $0.status == .completed }
-    }
+        invalidateCache()
 
-    @MainActor
-    func refresh() async {
-        isLoading = true
-        error = nil
-
-        do {
-            try await Task.sleep(nanoseconds: 500_000_000)
-            // In production, fetch from actual agent service
-            // sessions = try await agentService.fetchSessions()
-        } catch {
-            self.error = error.localizedDescription
+        Task {
+            for id in completedIds {
+                try? await persistence?.deleteSession(id)
+            }
         }
-
-        isLoading = false
     }
 
     func updateSession(_ session: Session) {
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            let oldStatus = sessions[index].status
             sessions[index] = session
+            invalidateCache()
+
+            if oldStatus != session.status {
+                AppLogger.logSessionStatusChanged(session, from: oldStatus)
+            }
+
+            persistSession(session)
         }
     }
+
+    // MARK: - Session Actions
+
+    @MainActor
+    func pauseSession(_ session: Session) async throws {
+        guard session.status == .running else { return }
+
+        var updated = session
+        updated.status = .paused
+        updateSession(updated)
+
+        try await agentService.sendCommand(
+            AgentCommand(type: .pause, sessionId: session.id, payload: nil)
+        )
+    }
+
+    @MainActor
+    func resumeSession(_ session: Session) async throws {
+        guard session.status == .paused else { return }
+
+        var updated = session
+        updated.status = .running
+        updateSession(updated)
+
+        try await agentService.sendCommand(
+            AgentCommand(type: .resume, sessionId: session.id, payload: nil)
+        )
+    }
+
+    @MainActor
+    func cancelSession(_ session: Session) async throws {
+        guard session.status == .running || session.status == .paused else { return }
+
+        var updated = session
+        updated.status = .failed
+        updated.endedAt = Date()
+        updateSession(updated)
+
+        try await agentService.sendCommand(
+            AgentCommand(type: .cancel, sessionId: session.id, payload: nil)
+        )
+    }
+
+    @MainActor
+    func retrySession(_ session: Session) async throws {
+        guard session.status == .failed else { return }
+
+        var updated = session
+        updated.status = .running
+        updated.endedAt = nil
+        updated.metrics.errorCount = 0
+        updateSession(updated)
+
+        try await agentService.sendCommand(
+            AgentCommand(type: .retry, sessionId: session.id, payload: nil)
+        )
+    }
+
+    // MARK: - Message & Tool Call Management
 
     func appendMessage(_ message: Message, to sessionId: UUID) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].messages.append(message)
+            invalidateCache()
+            persistSession(sessions[index])
         }
     }
 
@@ -116,7 +262,129 @@ final class SessionStore {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].toolCalls.append(toolCall)
             sessions[index].metrics.toolCallCount += 1
+            invalidateCache()
+
+            AppLogger.logToolCallStarted(toolCall, sessionId: sessionId)
+            persistSession(sessions[index])
         }
+    }
+
+    func updateToolCall(_ toolCall: ToolCall, in sessionId: UUID) {
+        if let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId }),
+           let toolIndex = sessions[sessionIndex].toolCalls.firstIndex(where: { $0.id == toolCall.id }) {
+            sessions[sessionIndex].toolCalls[toolIndex] = toolCall
+            invalidateCache()
+
+            if toolCall.status == .completed || toolCall.status == .failed {
+                AppLogger.logToolCallCompleted(toolCall, sessionId: sessionId)
+            }
+
+            persistSession(sessions[sessionIndex])
+        }
+    }
+
+    // MARK: - Refresh & Loading
+
+    @MainActor
+    func refresh() async {
+        isLoading = true
+        error = nil
+
+        do {
+            try await AppLogger.measureAsync("refresh sessions") {
+                // In production, fetch from actual agent service
+                // let fetchedSessions = try await agentService.fetchSessions()
+                // sessions = fetchedSessions
+
+                // For now, just reload from persistence
+                if let persistence = persistence {
+                    let persisted = try await persistence.loadSessions()
+                    if !persisted.isEmpty {
+                        sessions = persisted
+                        invalidateCache()
+                    }
+                }
+            }
+        } catch {
+            self.error = error.localizedDescription
+            AppLogger.logError(error, context: "refresh")
+        }
+
+        isLoading = false
+    }
+
+    @MainActor
+    func loadNextPage() async {
+        guard hasMorePages, !isLoading else { return }
+
+        isLoading = true
+
+        do {
+            // In production, this would fetch the next page from the API
+            // let newSessions = try await agentService.fetchSessions(page: currentPage, limit: pageSize)
+            // sessions.append(contentsOf: newSessions)
+            // hasMorePages = newSessions.count == pageSize
+            // currentPage += 1
+
+            try await Task.sleep(nanoseconds: 300_000_000)
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    // MARK: - Error Handling
+
+    func clearError() {
+        error = nil
+    }
+
+    // MARK: - Export
+
+    func exportSession(_ session: Session, to url: URL) async throws {
+        try await persistence?.exportSession(session, to: url)
+    }
+
+    // MARK: - Private Helpers
+
+    private func invalidateCache() {
+        filteredCache = nil
+    }
+
+    private func persistSession(_ session: Session) {
+        Task {
+            do {
+                try await persistence?.saveSession(session)
+            } catch {
+                AppLogger.logPersistenceError(error, context: "saving session \(session.id)")
+            }
+        }
+    }
+
+    @MainActor
+    private func loadPersistedSessions() async {
+        guard let persistence = persistence else {
+            loadMockData()
+            return
+        }
+
+        isLoading = true
+
+        do {
+            let persisted = try await persistence.loadSessions()
+            if persisted.isEmpty {
+                loadMockData()
+            } else {
+                sessions = persisted
+                selectedSessionId = sessions.first?.id
+            }
+        } catch {
+            AppLogger.logPersistenceError(error, context: "loading sessions")
+            loadMockData()
+        }
+
+        isLoading = false
     }
 
     private func loadMockData() {

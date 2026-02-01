@@ -36,6 +36,8 @@ struct ConversationView: View {
                 Image(systemName: scrollToBottom ? "arrow.down.circle.fill" : "arrow.down.circle")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(scrollToBottom ? "Auto-scroll enabled" : "Auto-scroll disabled")
+            .accessibilityHint("Toggle automatic scrolling to new messages")
             .padding()
         }
     }
@@ -50,7 +52,7 @@ struct MessageBubbleView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: message.role.icon)
-                    .foregroundStyle(roleColor)
+                    .foregroundStyle(AppTheme.roleColors[message.role] ?? .secondary)
 
                 Text(message.role.rawValue)
                     .fontWeight(.medium)
@@ -67,6 +69,7 @@ struct MessageBubbleView: View {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel(isExpanded ? "Collapse message" : "Expand message")
             }
             .font(.callout)
 
@@ -81,8 +84,10 @@ struct MessageBubbleView: View {
             }
         }
         .padding()
-        .background(backgroundColor)
+        .background(AppTheme.roleBackgroundColors[message.role] ?? Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(message.role.rawValue) message: \(message.content)")
         .contextMenu {
             Button {
                 NSPasteboard.general.clearContents()
@@ -96,30 +101,12 @@ struct MessageBubbleView: View {
             }
         }
     }
-
-    private var roleColor: Color {
-        switch message.role {
-        case .user: return .blue
-        case .assistant: return .purple
-        case .system: return .gray
-        case .tool: return .orange
-        }
-    }
-
-    private var backgroundColor: Color {
-        switch message.role {
-        case .user: return Color.blue.opacity(0.1)
-        case .assistant: return Color.purple.opacity(0.1)
-        case .system: return Color.gray.opacity(0.1)
-        case .tool: return Color.orange.opacity(0.1)
-        }
-    }
 }
 
 struct StreamingTextView: View {
     let text: String
-    @State private var displayedText = ""
     @State private var cursorVisible = true
+    @State private var cursorTimer: Timer?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 0) {
@@ -127,22 +114,30 @@ struct StreamingTextView: View {
                 .textSelection(.enabled)
                 .font(.body)
 
-            if cursorVisible {
-                Rectangle()
-                    .fill(Color.primary)
-                    .frame(width: 2, height: 16)
-                    .opacity(cursorVisible ? 1 : 0)
-            }
+            Rectangle()
+                .fill(Color.primary)
+                .frame(width: 2, height: 16)
+                .opacity(cursorVisible ? 1 : 0)
         }
         .onAppear {
             startCursorAnimation()
         }
+        .onDisappear {
+            stopCursorAnimation()
+        }
+        .accessibilityLabel("Streaming message: \(text)")
+        .accessibilityHint("Message is still being generated")
     }
 
     private func startCursorAnimation() {
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             cursorVisible.toggle()
         }
+    }
+
+    private func stopCursorAnimation() {
+        cursorTimer?.invalidate()
+        cursorTimer = nil
     }
 }
 

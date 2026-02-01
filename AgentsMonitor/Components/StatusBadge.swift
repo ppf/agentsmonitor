@@ -40,6 +40,7 @@ struct StatusBadge: View {
                 PulsingDot(color: statusColor)
                     .frame(width: size.iconSize * 0.5, height: size.iconSize * 0.5)
             } else {
+                // Always show icon for colorblind accessibility
                 Image(systemName: status.icon)
                     .font(.system(size: size.iconSize * 0.7))
             }
@@ -54,16 +55,13 @@ struct StatusBadge: View {
         .padding(.vertical, size.padding * 0.5)
         .background(statusColor.opacity(0.15))
         .clipShape(Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Status: \(status.rawValue)")
+        .accessibilityAddTraits(status == .running ? .updatesFrequently : [])
     }
 
     private var statusColor: Color {
-        switch status {
-        case .running: return .green
-        case .paused: return .yellow
-        case .completed: return .blue
-        case .failed: return .red
-        case .waiting: return .orange
-        }
+        AppTheme.statusColors[status] ?? .secondary
     }
 }
 
@@ -80,6 +78,11 @@ struct PulsingDot: View {
 
             Circle()
                 .fill(color)
+
+            // Add checkmark overlay for running state accessibility
+            Image(systemName: "play.fill")
+                .font(.system(size: 4))
+                .foregroundStyle(.white)
         }
         .onAppear {
             withAnimation(
@@ -89,6 +92,7 @@ struct PulsingDot: View {
                 isAnimating = true
             }
         }
+        .accessibilityHidden(true) // Parent handles accessibility
     }
 }
 

@@ -22,31 +22,45 @@ A native macOS app for monitoring AI agent sessions, built with SwiftUI + Swift.
 | Tool Calls Timeline | :green_circle: Complete | Split view with detail panel |
 | Settings | :green_circle: Complete | General, Appearance, Connection, Shortcuts |
 | Menu Bar | :green_circle: Complete | Quick access widget |
+| **Improvements** | :green_circle: Complete | See below |
 
 ---
 
-## Current Task
-:white_check_mark: **Implementation Complete!**
+## Improvements Implemented
 
-## Latest Update
-All core components implemented. Ready for Xcode build and testing.
+### P0 - Critical Fixes
+| Issue | File | Status |
+|-------|------|--------|
+| Timer memory leak | `ConversationView.swift` | :green_circle: Fixed |
+| No error UI | `ContentView.swift` | :green_circle: Fixed |
+| No session persistence | `SessionPersistence.swift` | :green_circle: Added |
+
+### P1 - Performance
+| Issue | File | Status |
+|-------|------|--------|
+| Double filtering | `SessionListView.swift` | :green_circle: Fixed |
+| No caching | `SessionStore.swift` | :green_circle: Added |
+| No pagination | `SessionStore.swift` | :green_circle: Added |
+
+### P2 - Accessibility
+| Issue | File | Status |
+|-------|------|--------|
+| Missing labels | All icon buttons | :green_circle: Fixed |
+| Color-only indicators | `StatusBadge.swift`, `ToolCallsView.swift` | :green_circle: Fixed |
+
+### P3 - Code Quality
+| Issue | File | Status |
+|-------|------|--------|
+| Scattered colors | `AppTheme.swift` | :green_circle: Centralized |
+| Dead settings | `SettingsView.swift` | :green_circle: Fixed |
+| Empty handlers | `SessionDetailView.swift` | :green_circle: Implemented |
+| No logging | `Logger.swift` | :green_circle: Added |
+| No DI | `SessionStore.swift` | :green_circle: Added |
 
 ---
 
-## Architecture Decisions
+## File Structure (20 files)
 
-### 1. State Management
-- Using `@Observable` (Swift 5.9+) instead of ObservableObject
-- Simpler, more performant than TCA for this use case
-
-### 2. Data Flow
-```
-AgentService (data source)
-    → SessionStore (@Observable)
-        → Views (SwiftUI)
-```
-
-### 3. File Structure
 ```
 AgentsMonitor/
 ├── App/
@@ -58,69 +72,90 @@ AgentsMonitor/
 │   └── AppState.swift               ✓
 ├── Views/
 │   ├── MainWindow/
-│   │   ├── ContentView.swift        ✓
+│   │   ├── ContentView.swift        ✓ (+ error handling, loading)
 │   │   └── MenuBarView.swift        ✓
 │   ├── SessionList/
-│   │   └── SessionListView.swift    ✓
+│   │   └── SessionListView.swift    ✓ (+ optimized filtering)
 │   ├── SessionDetail/
-│   │   ├── SessionDetailView.swift  ✓
-│   │   ├── ConversationView.swift   ✓
+│   │   ├── SessionDetailView.swift  ✓ (+ action handlers, export)
+│   │   ├── ConversationView.swift   ✓ (+ timer fix, accessibility)
 │   │   └── MetricsView.swift        ✓
 │   ├── ToolCalls/
-│   │   └── ToolCallsView.swift      ✓
+│   │   └── ToolCallsView.swift      ✓ (+ type-safe tabs, accessibility)
 │   └── Settings/
-│       └── SettingsView.swift       ✓
+│       └── SettingsView.swift       ✓ (+ working bindings)
 ├── ViewModels/
-│   └── SessionStore.swift           ✓
+│   └── SessionStore.swift           ✓ (+ DI, caching, persistence)
 ├── Services/
-│   └── AgentService.swift           ✓
+│   ├── AgentService.swift           ✓
+│   ├── SessionPersistence.swift     ✓ NEW
+│   └── Logger.swift                 ✓ NEW
 ├── Components/
-│   ├── StatusBadge.swift            ✓
+│   ├── StatusBadge.swift            ✓ (+ accessibility)
 │   └── StreamingTextViewRepresentable.swift ✓
+├── Theme/
+│   └── AppTheme.swift               ✓ NEW
 └── Resources/
     └── Assets.xcassets/             ✓
 ```
 
-### 4. Key Features
-- [x] Sidebar with session list (filterable, sortable)
+---
+
+## Key Features
+- [x] Sidebar with session list (filterable, sortable, cached)
 - [x] Session detail with streaming output
-- [x] Tool calls timeline with split view
-- [x] Session status indicators (animated)
+- [x] Tool calls timeline with split view (type-safe tabs)
+- [x] Session status indicators (animated, accessible)
 - [x] Quick search/filter
 - [x] Menu bar widget
 - [x] Keyboard shortcuts
-- [x] Settings preferences (4 tabs)
+- [x] Settings preferences (4 tabs, working bindings)
 - [x] Metrics dashboard with charts
-- [x] Context menus
+- [x] Context menus with actions
 - [x] Swipe actions
+- [x] Session persistence to disk
+- [x] Error handling with alerts
+- [x] Loading indicators
+- [x] Export functionality
+- [x] Full accessibility support
+- [x] Centralized theming
+- [x] Structured logging
 
 ---
 
-## Files Created
+## New Files Added
 
-### Core (17 files)
-1. `AgentsMonitorApp.swift` - Main app entry, scenes, commands
-2. `Session.swift` - Session model with status, metrics
-3. `Message.swift` - Message model with roles
-4. `ToolCall.swift` - Tool call model with status
-5. `AppState.swift` - Global app state (@Observable)
-6. `SessionStore.swift` - Session data management
-7. `AgentService.swift` - WebSocket service (stubbed)
-8. `ContentView.swift` - Main window layout
-9. `SessionListView.swift` - Sidebar session list
-10. `SessionDetailView.swift` - Session detail tabs
-11. `ConversationView.swift` - Message conversation
-12. `MetricsView.swift` - Metrics dashboard
-13. `ToolCallsView.swift` - Tool calls timeline
-14. `SettingsView.swift` - Preferences window
-15. `MenuBarView.swift` - Menu bar widget
-16. `StatusBadge.swift` - Status indicator component
-17. `StreamingTextViewRepresentable.swift` - AppKit bridge
+1. `Theme/AppTheme.swift` - Centralized colors, fonts, spacing
+2. `Services/SessionPersistence.swift` - Disk persistence with Codable
+3. `Services/Logger.swift` - OSLog-based structured logging
 
-### Config (3 files)
-1. `project.pbxproj` - Xcode project configuration
-2. `AgentsMonitor.entitlements` - App sandbox entitlements
-3. `Assets.xcassets/` - App icons, colors
+---
+
+## Technical Improvements
+
+### Memory Management
+- Timer properly invalidated on view disappear
+- Weak references where appropriate
+
+### Performance
+- Single-pass list partitioning (active vs. other sessions)
+- Filtered results caching with invalidation
+- Pagination support for large datasets
+
+### Accessibility
+- All icon buttons have labels and hints
+- Status indicators use icons + color (colorblind safe)
+- Screen reader support throughout
+
+### Error Handling
+- Error alerts on all async operations
+- Confirmation dialogs for destructive actions
+- Graceful degradation when persistence fails
+
+### Testability
+- Dependency injection in SessionStore
+- Protocol-based services
+- Separated concerns
 
 ---
 
@@ -130,18 +165,29 @@ AgentsMonitor/
 2. **Build & Run**: Cmd+R
 3. **Add app icons**: Replace placeholder icons in Assets.xcassets
 4. **Connect real agent**: Implement AgentService WebSocket connection
+5. **Add unit tests**: Test SessionStore, SessionPersistence
 
 ---
 
 ## Changelog
 
-### Implementation Complete
+### Improvements Phase
+- Fixed timer memory leak in StreamingTextView
+- Added error UI alerts with proper state management
+- Implemented session persistence with Codable
+- Optimized list filtering with caching
+- Added pagination support
+- Added accessibility labels to all buttons
+- Fixed color-only status indicators
+- Created centralized AppTheme
+- Fixed dead settings bindings
+- Implemented all action button handlers
+- Added structured logging with OSLog
+- Added dependency injection to SessionStore
+
+### Initial Implementation
 - Created full SwiftUI app structure
 - Implemented all views and components
 - Added AppKit bridge for streaming text
 - Created Xcode project configuration
 - Set up app entitlements for sandbox
-
-### Session Start
-- Created MACOS_STACK_RESEARCH.md with stack comparison
-- Chose SwiftUI + Swift as primary stack

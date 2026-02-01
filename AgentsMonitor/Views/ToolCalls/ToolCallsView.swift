@@ -31,10 +31,12 @@ struct ToolCallsView: View {
                     Image(systemName: "wrench.and.screwdriver")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     Text("Select a tool call to view details")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("No tool call selected")
             }
         }
         .searchable(text: $filterText, prompt: "Filter tool calls...")
@@ -60,6 +62,7 @@ struct ToolCallListView: View {
                 }
             }
         }
+        .accessibilityLabel("Tool calls list")
     }
 }
 
@@ -68,10 +71,24 @@ struct ToolCallRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: toolCall.toolIcon)
-                .font(.title2)
-                .foregroundStyle(statusColor)
-                .frame(width: 32)
+            // Icon with status indicator for accessibility
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: toolCall.toolIcon)
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.toolCallStatusColors[toolCall.status] ?? .secondary)
+                    .frame(width: 32)
+
+                // Small status icon for color-blind accessibility
+                Image(systemName: toolCall.status.icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(AppTheme.toolCallStatusColors[toolCall.status] ?? .secondary)
+                    .background(
+                        Circle()
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                            .frame(width: 14, height: 14)
+                    )
+                    .offset(x: 4, y: 4)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -100,15 +117,9 @@ struct ToolCallRowView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private var statusColor: Color {
-        switch toolCall.status {
-        case .pending: return .gray
-        case .running: return .blue
-        case .completed: return .green
-        case .failed: return .red
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(toolCall.name), \(toolCall.status.rawValue), input: \(toolCall.input)")
+        .accessibilityHint("Double-tap to view details")
     }
 }
 
@@ -128,33 +139,25 @@ struct StatusPill: View {
         .font(.caption2)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(backgroundColor)
-        .foregroundStyle(foregroundColor)
+        .background(AppTheme.toolCallStatusColors[status]?.opacity(0.2) ?? Color.gray.opacity(0.2))
+        .foregroundStyle(AppTheme.toolCallStatusColors[status] ?? .gray)
         .clipShape(Capsule())
+        .accessibilityLabel("Status: \(status.rawValue)")
     }
+}
 
-    private var backgroundColor: Color {
-        switch status {
-        case .pending: return .gray.opacity(0.2)
-        case .running: return .blue.opacity(0.2)
-        case .completed: return .green.opacity(0.2)
-        case .failed: return .red.opacity(0.2)
-        }
-    }
+// MARK: - Type-Safe Tab Enum
 
-    private var foregroundColor: Color {
-        switch status {
-        case .pending: return .gray
-        case .running: return .blue
-        case .completed: return .green
-        case .failed: return .red
-        }
-    }
+enum ToolDetailTab: String, CaseIterable {
+    case input = "Input"
+    case output = "Output"
+    case error = "Error"
 }
 
 struct ToolCallDetailView: View {
     let toolCall: ToolCall
-    @State private var selectedTab = 0
+    @State private var selectedTab: ToolDetailTab = .input
+    @Environment(\.codeFontSize) private var codeFontSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -181,28 +184,40 @@ struct ToolCallDetailView: View {
             }
             .padding()
             .background(.bar)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Tool call \(toolCall.name), status \(toolCall.status.rawValue)")
 
             Divider()
 
-            // Content
+            // Content with type-safe tabs
             TabView(selection: $selectedTab) {
-                CodeBlockView(title: "Input", content: toolCall.input)
+                CodeBlockView(title: "Input", content: toolCall.input, fontSize: codeFontSize)
                     .tabItem { Text("Input") }
-                    .tag(0)
+                    .tag(ToolDetailTab.input)
 
                 if let output = toolCall.output {
-                    CodeBlockView(title: "Output", content: output)
+                    CodeBlockView(title: "Output", content: output, fontSize: codeFontSize)
                         .tabItem { Text("Output") }
-                        .tag(1)
+                        .tag(ToolDetailTab.output)
                 }
 
                 if let error = toolCall.error {
-                    CodeBlockView(title: "Error", content: error, isError: true)
+                    CodeBlockView(title: "Error", content: error, fontSize: codeFontSize, isError: true)
                         .tabItem { Text("Error") }
-                        .tag(2)
+                        .tag(ToolDetailTab.error)
                 }
             }
             .padding()
+        }
+        .onAppear {
+            // Auto-select appropriate tab based on status
+            if toolCall.error != nil {
+                selectedTab = .error
+            } else if toolCall.output != nil {
+                selectedTab = .output
+            } else {
+                selectedTab = .input
+            }
         }
     }
 }
@@ -210,7 +225,9 @@ struct ToolCallDetailView: View {
 struct CodeBlockView: View {
     let title: String
     let content: String
+    var fontSize: Int = 12
     var isError: Bool = false
+    @State private var isCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -221,21 +238,28 @@ struct CodeBlockView: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(content, forType: .string)
+                    isCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        isCopied = false
+                    }
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel(isCopied ? "Copied" : "Copy to clipboard")
+                .accessibilityHint("Copies the \(title.lowercased()) content to clipboard")
             }
 
             ScrollView {
                 Text(content)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: CGFloat(fontSize), design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
             .background(isError ? Color.red.opacity(0.1) : Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+            .accessibilityLabel("\(title): \(content)")
         }
     }
 }
