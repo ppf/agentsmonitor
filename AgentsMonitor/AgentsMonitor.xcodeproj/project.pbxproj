@@ -1,0 +1,464 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AM001 /* AgentsMonitorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF001; };
+		AM002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF002; };
+		AM003 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF003; };
+		AM004 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF004; };
+		AM005 /* ToolCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF005; };
+		AM006 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF006; };
+		AM007 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF007; };
+		AM008 /* AgentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF008; };
+		AM009 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF009; };
+		AM010 /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF010; };
+		AM011 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF011; };
+		AM012 /* ToolCallsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF012; };
+		AM013 /* MetricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF013; };
+		AM014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF014; };
+		AM015 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF015; };
+		AM016 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF016; };
+		AM017 /* StreamingTextViewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF017; };
+		AM018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AMF018; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AMF001 /* AgentsMonitorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsMonitorApp.swift; sourceTree = "<group>"; };
+		AMF002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AMF003 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
+		AMF004 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		AMF005 /* ToolCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCall.swift; sourceTree = "<group>"; };
+		AMF006 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		AMF007 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		AMF008 /* AgentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentService.swift; sourceTree = "<group>"; };
+		AMF009 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		AMF010 /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
+		AMF011 /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		AMF012 /* ToolCallsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallsView.swift; sourceTree = "<group>"; };
+		AMF013 /* MetricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsView.swift; sourceTree = "<group>"; };
+		AMF014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AMF015 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		AMF016 /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		AMF017 /* StreamingTextViewRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingTextViewRepresentable.swift; sourceTree = "<group>"; };
+		AMF018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AMF019 /* AgentsMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentsMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		AMG001 = {
+			isa = PBXGroup;
+			children = (
+				AMG002 /* AgentsMonitor */,
+				AMG003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AMG002 /* AgentsMonitor */ = {
+			isa = PBXGroup;
+			children = (
+				AMG004 /* App */,
+				AMG005 /* Models */,
+				AMG006 /* Views */,
+				AMG007 /* ViewModels */,
+				AMG008 /* Services */,
+				AMG009 /* Components */,
+				AMG010 /* Resources */,
+			);
+			path = AgentsMonitor;
+			sourceTree = "<group>";
+		};
+		AMG003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AMF019 /* AgentsMonitor.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AMG004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				AMF001 /* AgentsMonitorApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AMG005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AMF003 /* Session.swift */,
+				AMF004 /* Message.swift */,
+				AMF005 /* ToolCall.swift */,
+				AMF006 /* AppState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AMG006 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AMG011 /* MainWindow */,
+				AMG012 /* SessionList */,
+				AMG013 /* SessionDetail */,
+				AMG014 /* ToolCalls */,
+				AMG015 /* Settings */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AMG007 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AMF007 /* SessionStore.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AMG008 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AMF008 /* AgentService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AMG009 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				AMF016 /* StatusBadge.swift */,
+				AMF017 /* StreamingTextViewRepresentable.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		AMG010 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AMF018 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AMG011 /* MainWindow */ = {
+			isa = PBXGroup;
+			children = (
+				AMF002 /* ContentView.swift */,
+				AMF015 /* MenuBarView.swift */,
+			);
+			path = MainWindow;
+			sourceTree = "<group>";
+		};
+		AMG012 /* SessionList */ = {
+			isa = PBXGroup;
+			children = (
+				AMF009 /* SessionListView.swift */,
+			);
+			path = SessionList;
+			sourceTree = "<group>";
+		};
+		AMG013 /* SessionDetail */ = {
+			isa = PBXGroup;
+			children = (
+				AMF010 /* SessionDetailView.swift */,
+				AMF011 /* ConversationView.swift */,
+				AMF013 /* MetricsView.swift */,
+			);
+			path = SessionDetail;
+			sourceTree = "<group>";
+		};
+		AMG014 /* ToolCalls */ = {
+			isa = PBXGroup;
+			children = (
+				AMF012 /* ToolCallsView.swift */,
+			);
+			path = ToolCalls;
+			sourceTree = "<group>";
+		};
+		AMG015 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				AMF014 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AMT001 /* AgentsMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AMCL001;
+			buildPhases = (
+				AMP001 /* Sources */,
+				AMP002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AgentsMonitor;
+			productName = AgentsMonitor;
+			productReference = AMF019 /* AgentsMonitor.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AMPROJ /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = AMCL002;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AMG001;
+			productRefGroup = AMG003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AMT001 /* AgentsMonitor */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AMP001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AM001 /* AgentsMonitorApp.swift in Sources */,
+				AM002 /* ContentView.swift in Sources */,
+				AM003 /* Session.swift in Sources */,
+				AM004 /* Message.swift in Sources */,
+				AM005 /* ToolCall.swift in Sources */,
+				AM006 /* AppState.swift in Sources */,
+				AM007 /* SessionStore.swift in Sources */,
+				AM008 /* AgentService.swift in Sources */,
+				AM009 /* SessionListView.swift in Sources */,
+				AM010 /* SessionDetailView.swift in Sources */,
+				AM011 /* ConversationView.swift in Sources */,
+				AM012 /* ToolCallsView.swift in Sources */,
+				AM013 /* MetricsView.swift in Sources */,
+				AM014 /* SettingsView.swift in Sources */,
+				AM015 /* MenuBarView.swift in Sources */,
+				AM016 /* StatusBadge.swift in Sources */,
+				AM017 /* StreamingTextViewRepresentable.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AMP002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AM018 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AMBC001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentsMonitor/AgentsMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agentsmonitor.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		AMBC002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentsMonitor/AgentsMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agentsmonitor.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		AMBC003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AMBC004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AMCL001 /* Build configuration list for PBXNativeTarget "AgentsMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AMBC001 /* Debug */,
+				AMBC002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AMCL002 /* Build configuration list for PBXProject "AgentsMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AMBC003 /* Debug */,
+				AMBC004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = AMPROJ /* Project object */;
+}
