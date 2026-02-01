@@ -25,7 +25,18 @@
 		AM016 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF016; };
 		AM017 /* StreamingTextViewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF017; };
 		AM018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AMF018; };
+		AMTB001 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF001; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AMCIP001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AMPROJ /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AMT001;
+			remoteInfo = AgentsMonitor;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		AMF001 /* AgentsMonitorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsMonitorApp.swift; sourceTree = "<group>"; };
@@ -47,6 +58,8 @@
 		AMF017 /* StreamingTextViewRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingTextViewRepresentable.swift; sourceTree = "<group>"; };
 		AMF018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AMF019 /* AgentsMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentsMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AMTF001 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
+		AMTF002 /* AgentsMonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentsMonitorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -54,6 +67,7 @@
 			isa = PBXGroup;
 			children = (
 				AMG002 /* AgentsMonitor */,
+				AMTG001 /* AgentsMonitorTests */,
 				AMG003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -76,6 +90,7 @@
 			isa = PBXGroup;
 			children = (
 				AMF019 /* AgentsMonitor.app */,
+				AMTF002 /* AgentsMonitorTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -187,6 +202,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		AMTG001 /* AgentsMonitorTests */ = {
+			isa = PBXGroup;
+			children = (
+				AMTF001 /* SessionStoreTests.swift */,
+			);
+			path = AgentsMonitorTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -205,6 +228,22 @@
 			productName = AgentsMonitor;
 			productReference = AMF019 /* AgentsMonitor.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AMT002 /* AgentsMonitorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AMCL003;
+			buildPhases = (
+				AMP003 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AMTD001 /* PBXTargetDependency */,
+			);
+			name = AgentsMonitorTests;
+			productName = AgentsMonitorTests;
+			productReference = AMTF002 /* AgentsMonitorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -230,6 +269,7 @@
 			projectRoot = "";
 			targets = (
 				AMT001 /* AgentsMonitor */,
+				AMT002 /* AgentsMonitorTests */,
 			);
 		};
 /* End PBXProject section */
@@ -259,6 +299,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AMP003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AMTB001 /* SessionStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -271,6 +319,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AMTD001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AMT001 /* AgentsMonitor */;
+			targetProxy = AMCIP001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AMBC001 /* Debug */ = {
@@ -436,6 +492,40 @@
 			};
 			name = Release;
 		};
+		AMTBC001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agentsmonitor.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AgentsMonitor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentsMonitor";
+			};
+			name = Debug;
+		};
+		AMTBC002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.agentsmonitor.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AgentsMonitor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AgentsMonitor";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -453,6 +543,15 @@
 			buildConfigurations = (
 				AMBC003 /* Debug */,
 				AMBC004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AMCL003 /* Build configuration list for PBXNativeTarget "AgentsMonitorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AMTBC001 /* Debug */,
+				AMTBC002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
