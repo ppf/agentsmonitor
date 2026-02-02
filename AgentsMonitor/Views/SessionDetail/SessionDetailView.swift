@@ -1,7 +1,5 @@
 import SwiftUI
 
-import SwiftUI
-
 struct SessionDetailView: View {
     let session: Session
     @Environment(AppState.self) private var appState
@@ -29,8 +27,8 @@ struct SessionDetailView: View {
             // Content based on selection
             Group {
                 switch state.selectedDetailTab {
-                case .conversation:
-                    ConversationView(messages: session.messages)
+                case .terminal:
+                    TerminalContainerView(session: session)
                 case .toolCalls:
                     ToolCallsView(toolCalls: session.toolCalls)
                 case .metrics:
@@ -219,7 +217,7 @@ struct SessionActionButtons: View {
             }
             Button("Keep Running", role: .cancel) {}
         } message: {
-            Text("This will stop the session and mark it as failed. This action cannot be undone.")
+            Text("This will stop the session and mark it as cancelled. This action cannot be undone.")
         }
         .fileExporter(
             isPresented: $showingExportPanel,

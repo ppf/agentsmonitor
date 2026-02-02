@@ -111,6 +111,7 @@ struct MenuBarSessionRow: View {
             Spacer()
 
             ProgressView()
+                .frame(width: 16, height: 16)
                 .scaleEffect(0.5)
         }
         .padding(.horizontal)

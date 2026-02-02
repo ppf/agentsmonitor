@@ -29,6 +29,14 @@ struct Message: Identifiable, Hashable {
         formatter.timeStyle = .medium
         return formatter.string(from: timestamp)
     }
+
+    static func == (lhs: Message, rhs: Message) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 enum MessageRole: String, CaseIterable, Codable {

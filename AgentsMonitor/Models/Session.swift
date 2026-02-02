@@ -1,4 +1,6 @@
 import Foundation
+import Darwin
+import Foundation
 
 struct Session: Identifiable, Hashable {
     let id: UUID
@@ -10,6 +12,12 @@ struct Session: Identifiable, Hashable {
     var messages: [Message]
     var toolCalls: [ToolCall]
     var metrics: SessionMetrics
+    var workingDirectory: URL?
+    var processId: Int32?
+    var errorMessage: String?
+    var isExternalProcess: Bool
+    var isFullyLoaded: Bool
+    var terminalOutput: Data?
 
     init(
         id: UUID = UUID(),
@@ -20,7 +28,13 @@ struct Session: Identifiable, Hashable {
         endedAt: Date? = nil,
         messages: [Message] = [],
         toolCalls: [ToolCall] = [],
-        metrics: SessionMetrics = SessionMetrics()
+        metrics: SessionMetrics = SessionMetrics(),
+        workingDirectory: URL? = nil,
+        processId: Int32? = nil,
+        errorMessage: String? = nil,
+        isExternalProcess: Bool = false,
+        isFullyLoaded: Bool = true,
+        terminalOutput: Data? = nil
     ) {
         self.id = id
         self.name = name
@@ -31,6 +45,12 @@ struct Session: Identifiable, Hashable {
         self.messages = messages
         self.toolCalls = toolCalls
         self.metrics = metrics
+        self.workingDirectory = workingDirectory
+        self.processId = processId
+        self.errorMessage = errorMessage
+        self.isExternalProcess = isExternalProcess
+        self.isFullyLoaded = isFullyLoaded
+        self.terminalOutput = terminalOutput
     }
 
     var duration: TimeInterval {
@@ -54,12 +74,54 @@ struct Session: Identifiable, Hashable {
     }
 }
 
+struct SessionSummary: Identifiable, Hashable, Decodable {
+    let id: UUID
+    let name: String
+    let status: SessionStatus
+    let agentType: AgentType
+    let startedAt: Date
+    let endedAt: Date?
+    let metrics: SessionMetrics
+    let workingDirectory: URL?
+    let processId: Int32?
+    let errorMessage: String?
+    let isExternalProcess: Bool
+    let terminalOutput: Data?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, agentType, startedAt, endedAt
+        case metrics, workingDirectory, processId, errorMessage, isExternalProcess
+        case terminalOutput
+    }
+
+    func toSession() -> Session {
+        Session(
+            id: id,
+            name: name,
+            status: status,
+            agentType: agentType,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            messages: [],
+            toolCalls: [],
+            metrics: metrics,
+            workingDirectory: workingDirectory,
+            processId: processId,
+            errorMessage: errorMessage,
+            isExternalProcess: isExternalProcess,
+            isFullyLoaded: false,
+            terminalOutput: terminalOutput
+        )
+    }
+}
+
 enum SessionStatus: String, CaseIterable, Codable {
     case running = "Running"
     case paused = "Paused"
     case completed = "Completed"
     case failed = "Failed"
     case waiting = "Waiting"
+    case cancelled = "Cancelled"
 
     var color: String {
         switch self {
@@ -68,6 +130,7 @@ enum SessionStatus: String, CaseIterable, Codable {
         case .completed: return "blue"
         case .failed: return "red"
         case .waiting: return "orange"
+        case .cancelled: return "gray"
         }
     }
 
@@ -78,6 +141,7 @@ enum SessionStatus: String, CaseIterable, Codable {
         case .completed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
         case .waiting: return "clock.fill"
+        case .cancelled: return "stop.circle.fill"
         }
     }
 }
@@ -128,6 +192,279 @@ enum AgentType: String, CaseIterable, Codable {
         case .claudeCode: return "purple"
         case .codex: return "green"
         case .custom: return "blue"
+        }
+    }
+
+    var executablePath: String {
+        switch self {
+        case .claudeCode: return "/usr/local/bin/claude"
+        case .codex: return "/usr/local/bin/codex"
+        case .custom: return "/usr/local/bin/agent"
+        }
+    }
+
+    var suggestedDefaultPath: String? {
+        let home = Self.realHomeDirectoryPath()
+        switch self {
+        case .claudeCode:
+            return (home as NSString).appendingPathComponent(".local/bin/claude")
+        case .codex:
+            return "/opt/homebrew/bin/codex"
+        case .custom:
+            return nil
+        }
+    }
+
+    static func seedSuggestedOverridesIfNeeded() {
+        for agentType in AgentType.allCases {
+            guard let suggested = agentType.suggestedDefaultPath else { continue }
+            let seedKey = "agentExecutableOverrideSeeded.\(agentType.storageKey)"
+            let overrideKey = "agentExecutableOverride.\(agentType.storageKey)"
+            let current = UserDefaults.standard.string(forKey: overrideKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if shouldMigrateContainerOverride(current: current, suggested: suggested) {
+                UserDefaults.standard.set(suggested, forKey: overrideKey)
+                UserDefaults.standard.removeObject(forKey: "agentExecutableBookmark.\(agentType.storageKey)")
+                UserDefaults.standard.set(true, forKey: seedKey)
+                continue
+            }
+
+            if UserDefaults.standard.bool(forKey: seedKey) {
+                continue
+            }
+
+            if current.isEmpty {
+                UserDefaults.standard.set(suggested, forKey: overrideKey)
+                UserDefaults.standard.set(true, forKey: seedKey)
+            }
+        }
+    }
+
+    private static func shouldMigrateContainerOverride(current: String, suggested: String) -> Bool {
+        guard !current.isEmpty, current != suggested else { return false }
+        if current.contains("/Library/Containers/") {
+            return true
+        }
+        return false
+    }
+
+    private static func realHomeDirectoryPath() -> String {
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            return String(cString: dir)
+        }
+        return NSHomeDirectory()
+    }
+
+    var storageKey: String {
+        switch self {
+        case .claudeCode: return "claudeCode"
+        case .codex: return "codex"
+        case .custom: return "custom"
+        }
+    }
+
+    static var isSandboxed: Bool {
+        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+    }
+
+    var overrideExecutablePath: String? {
+        let key = "agentExecutableOverride.\(storageKey)"
+        guard let value = UserDefaults.standard.string(forKey: key) else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var overrideExecutableBookmarkData: Data? {
+        UserDefaults.standard.data(forKey: "agentExecutableBookmark.\(storageKey)")
+    }
+
+    var executableNames: [String] {
+        switch self {
+        case .claudeCode:
+            return ["claude", "claude-code", "claude_code"]
+        case .codex:
+            return ["codex", "openai-codex"]
+        case .custom:
+            return ["agent"]
+        }
+    }
+
+    func resolvedExecutablePath() -> String? {
+        if let url = overrideExecutableURL(),
+           isExecutable(url: url, useSecurityScope: overrideExecutableBookmarkData != nil) {
+            return url.path
+        }
+        return detectedExecutablePath()
+    }
+
+    func detectedExecutablePath() -> String? {
+        // First, check candidate paths directly
+        for path in candidateExecutablePaths() where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        // Fallback: use `which` command to find in shell PATH
+        for name in executableNames {
+            if let path = Self.whichExecutable(name), FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    func overrideExecutableURL() -> URL? {
+        if let data = overrideExecutableBookmarkData {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope, .withoutUI],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                return url
+            }
+        }
+        if let override = overrideExecutablePath {
+            return URL(fileURLWithPath: override)
+        }
+        return nil
+    }
+
+    private func isExecutable(url: URL, useSecurityScope: Bool) -> Bool {
+        if useSecurityScope && Self.isSandboxed {
+            let ok = url.startAccessingSecurityScopedResource()
+            defer {
+                if ok {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            guard ok else { return false }
+        }
+        return FileManager.default.isExecutableFile(atPath: url.path)
+    }
+
+    /// Use `which` command to locate executable in shell PATH
+    private static func whichExecutable(_ name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [name]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !output.isEmpty else { return nil }
+            return output
+        } catch {
+            return nil
+        }
+    }
+
+    private func candidateExecutablePaths() -> [String] {
+        var paths: [String] = [executablePath]
+        let envPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        let envDirs = envPath.split(separator: ":").map(String.init)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+
+        // Common installation directories
+        let commonDirs = [
+            // User local
+            home.appendingPathComponent(".local/bin").path,
+            home.appendingPathComponent("bin").path,
+            // npm global (default and custom prefix)
+            home.appendingPathComponent(".npm-global/bin").path,
+            home.appendingPathComponent(".npm/bin").path,
+            "/usr/local/lib/node_modules/.bin",
+            // nvm (Node Version Manager)
+            home.appendingPathComponent(".nvm/versions/node").path + "/*/bin",
+            // fnm (Fast Node Manager)
+            home.appendingPathComponent(".fnm/node-versions").path + "/*/installation/bin",
+            home.appendingPathComponent("Library/Application Support/fnm/node-versions").path + "/*/installation/bin",
+            // volta
+            home.appendingPathComponent(".volta/bin").path,
+            // Homebrew
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            // System
+            "/usr/bin",
+            "/bin",
+            "/opt/local/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/sbin",
+            "/opt/local/sbin"
+        ]
+
+        var seen = Set<String>()
+        let searchDirs = (envDirs + commonDirs).filter { dir in
+            guard !dir.isEmpty else { return false }
+            if seen.contains(dir) { return false }
+            seen.insert(dir)
+            return true
+        }
+
+        for dir in searchDirs {
+            // Handle glob patterns for version managers
+            if dir.contains("*") {
+                let expanded = Self.expandGlobPath(dir)
+                for expandedDir in expanded {
+                    for name in executableNames {
+                        let url = URL(fileURLWithPath: expandedDir).appendingPathComponent(name)
+                        paths.append(url.path)
+                    }
+                }
+            } else {
+                for name in executableNames {
+                    let url = URL(fileURLWithPath: dir).appendingPathComponent(name)
+                    paths.append(url.path)
+                }
+            }
+        }
+        return paths
+    }
+
+    /// Expand glob patterns like ~/.nvm/versions/node/*/bin
+    private static func expandGlobPath(_ pattern: String) -> [String] {
+        let parts = pattern.split(separator: "*", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return [] }
+
+        let baseDir = String(parts[0])
+        let suffix = String(parts[1])
+
+        guard FileManager.default.fileExists(atPath: baseDir) else { return [] }
+
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(atPath: baseDir)
+            return contents.compactMap { item -> String? in
+                let full = (baseDir as NSString).appendingPathComponent(item) + suffix
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue else {
+                    return nil
+                }
+                return full
+            }
+        } catch {
+            return []
+        }
+    }
+
+    var defaultArgs: [String] {
+        switch self {
+        case .claudeCode: return []
+        case .codex: return ["--no-alt-screen"]
+        case .custom: return []
+        }
+    }
+
+    var isTerminalBased: Bool {
+        switch self {
+        case .claudeCode, .codex: return true
+        case .custom: return false
         }
     }
 }

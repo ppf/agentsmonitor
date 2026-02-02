@@ -57,6 +57,38 @@ actor SessionPersistence {
         return sessions
     }
 
+    func loadSessionSummaries() async throws -> [SessionSummary] {
+        let files = try fileManager.contentsOfDirectory(
+            at: sessionsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles
+        )
+
+        let summaries: [SessionSummary] = files
+            .filter { $0.pathExtension == "json" }
+            .compactMap { url -> SessionSummary? in
+                do {
+                    let data = try Data(contentsOf: url)
+                    return try decoder.decode(SessionSummary.self, from: data)
+                } catch {
+                    AppLogger.logPersistenceError(error, context: "loading session summary from \(url.lastPathComponent)")
+                    return nil
+                }
+            }
+            .sorted { $0.startedAt > $1.startedAt }
+
+        return summaries
+    }
+
+    func loadSession(_ sessionId: UUID) async throws -> Session? {
+        let url = sessionsDirectory.appendingPathComponent("\(sessionId.uuidString).json")
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: url)
+        return try decoder.decode(Session.self, from: data)
+    }
+
     // MARK: - Save Session
 
     func saveSession(_ session: Session) async throws {
@@ -119,6 +151,8 @@ extension Session: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, status, agentType, startedAt, endedAt
         case messages, toolCalls, metrics
+        case workingDirectory, processId, errorMessage, isExternalProcess
+        case terminalOutput
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +166,12 @@ extension Session: Codable {
         messages = try container.decode([Message].self, forKey: .messages)
         toolCalls = try container.decode([ToolCall].self, forKey: .toolCalls)
         metrics = try container.decode(SessionMetrics.self, forKey: .metrics)
+        workingDirectory = try container.decodeIfPresent(URL.self, forKey: .workingDirectory)
+        processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        isExternalProcess = try container.decodeIfPresent(Bool.self, forKey: .isExternalProcess) ?? false
+        terminalOutput = try container.decodeIfPresent(Data.self, forKey: .terminalOutput)
+        isFullyLoaded = true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -145,6 +185,11 @@ extension Session: Codable {
         try container.encode(messages, forKey: .messages)
         try container.encode(toolCalls, forKey: .toolCalls)
         try container.encode(metrics, forKey: .metrics)
+        try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+        try container.encodeIfPresent(processId, forKey: .processId)
+        try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
+        try container.encode(isExternalProcess, forKey: .isExternalProcess)
+        try container.encodeIfPresent(terminalOutput, forKey: .terminalOutput)
     }
 }
 

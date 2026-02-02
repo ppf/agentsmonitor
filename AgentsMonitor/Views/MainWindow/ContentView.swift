@@ -54,6 +54,18 @@ struct ContentView: View {
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Refreshes the session list")
                 .disabled(sessionStore.isLoading)
+
+                Button {
+                    Task {
+                        await sessionStore.refreshExternalProcesses()
+                    }
+                } label: {
+                    ExternalAgentsButtonLabel(count: sessionStore.detectedExternalCount)
+                }
+                .help("Detect External Agents")
+                .accessibilityLabel("Detect External Agents")
+                .accessibilityHint("Detects running codex/claude processes")
+                .disabled(sessionStore.isLoading)
             }
 
             ToolbarItem(placement: .status) {
@@ -73,6 +85,25 @@ struct ContentView: View {
     }
 }
 
+private struct ExternalAgentsButtonLabel: View {
+    let count: Int
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "bolt.horizontal.circle")
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(SwiftUI.Color.secondary.opacity(0.2))
+                    .clipShape(Capsule())
+                    .offset(x: 10, y: -8)
+            }
+        }
+    }
+}
+
 struct LoadingOverlay: View {
     var body: some View {
         ZStack {
@@ -81,6 +112,7 @@ struct LoadingOverlay: View {
 
             VStack(spacing: 12) {
                 ProgressView()
+                    .frame(width: 20, height: 20)
                     .scaleEffect(1.2)
                 Text("Loading...")
                     .font(.caption)
@@ -133,14 +165,22 @@ struct FilterMenu: View {
                 Button {
                     state.filterStatus = nil
                 } label: {
-                    Label("All", systemImage: state.filterStatus == nil ? "checkmark" : "")
+                    if state.filterStatus == nil {
+                        Label("All", systemImage: "checkmark")
+                    } else {
+                        Text("All")
+                    }
                 }
 
                 ForEach(SessionStatus.allCases, id: \.self) { status in
                     Button {
                         state.filterStatus = status
                     } label: {
-                        Label(status.rawValue, systemImage: state.filterStatus == status ? "checkmark" : "")
+                        if state.filterStatus == status {
+                            Label(status.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(status.rawValue)
+                        }
                     }
                 }
             }
@@ -152,7 +192,11 @@ struct FilterMenu: View {
                     Button {
                         state.sortOrder = order
                     } label: {
-                        Label(order.rawValue, systemImage: state.sortOrder == order ? "checkmark" : "")
+                        if state.sortOrder == order {
+                            Label(order.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(order.rawValue)
+                        }
                     }
                 }
             }

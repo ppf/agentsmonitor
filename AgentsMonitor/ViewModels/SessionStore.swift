@@ -1,12 +1,20 @@
 import Foundation
 import SwiftUI
+import SwiftTerm
 
 @Observable
 final class SessionStore {
     // MARK: - Published State
 
     private(set) var sessions: [Session] = []
-    var selectedSessionId: UUID?
+    var selectedSessionId: UUID? {
+        didSet {
+            guard let id = selectedSessionId else { return }
+            Task { @MainActor in
+                await loadSessionDetailsIfNeeded(id)
+            }
+        }
+    }
     var isLoading: Bool = false
     var error: String?
 
@@ -33,12 +41,23 @@ final class SessionStore {
 
     private let agentService: AgentService
     private let persistence: SessionPersistence?
+    private let processManager = AgentProcessManager()
+    private var bridges: [UUID: TerminalBridge] = [:]
+    private var securityScopedResources: [UUID: URL] = [:]
+    private var securityScopedExecutables: [UUID: URL] = [:]
+    private var loadingSessionIds: Set<UUID> = []
+    private var startingSessionIds: Set<UUID> = []
+    private var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
 
     // MARK: - Initialization
 
     init(agentService: AgentService = AgentService(), persistence: SessionPersistence? = SessionPersistence.shared) {
         self.agentService = agentService
         self.persistence = persistence
+
+        AgentType.seedSuggestedOverridesIfNeeded()
 
         Task {
             await loadPersistedSessions()
@@ -137,9 +156,17 @@ final class SessionStore {
     // MARK: - Session CRUD
 
     func createNewSession() {
+        let name = "New Session \(sessions.count + 1)"
+        createSession(agentType: .claudeCode, workingDirectory: FileManager.default.homeDirectoryForCurrentUser, name: name)
+    }
+
+    func createSession(agentType: AgentType, workingDirectory: URL, name: String?) {
+        let sessionName = name ?? "\(agentType.displayName) Session \(sessions.count + 1)"
         let session = Session(
-            name: "New Session \(sessions.count + 1)",
-            status: .waiting
+            name: sessionName,
+            status: .waiting,
+            agentType: agentType,
+            workingDirectory: workingDirectory
         )
         sessions.insert(session, at: 0)
         selectedSessionId = session.id
@@ -151,6 +178,11 @@ final class SessionStore {
 
     func deleteSession(_ session: Session) {
         let sessionId = session.id
+        if session.status == .running || session.status == .paused || session.status == .waiting {
+            Task { @MainActor [weak self] in
+                await self?.cleanupProcessResources(sessionId: sessionId)
+            }
+        }
         sessions.removeAll { $0.id == sessionId }
 
         if selectedSessionId == sessionId {
@@ -201,9 +233,8 @@ final class SessionStore {
         updated.status = .paused
         updateSession(updated)
 
-        try await agentService.sendCommand(
-            AgentCommand(type: .pause, sessionId: session.id, payload: nil)
-        )
+        // Send SIGTSTP to pause process
+        await processManager.sendSignal(SIGTSTP, to: session.id)
     }
 
     @MainActor
@@ -214,38 +245,157 @@ final class SessionStore {
         updated.status = .running
         updateSession(updated)
 
-        try await agentService.sendCommand(
-            AgentCommand(type: .resume, sessionId: session.id, payload: nil)
-        )
+        // Send SIGCONT to resume process
+        await processManager.sendSignal(SIGCONT, to: session.id)
     }
 
     @MainActor
     func cancelSession(_ session: Session) async throws {
-        guard session.status == .running || session.status == .paused else { return }
+        guard session.status == .running || session.status == .paused || session.status == .waiting else { return }
 
-        var updated = session
-        updated.status = .failed
-        updated.endedAt = Date()
-        updateSession(updated)
-
-        try await agentService.sendCommand(
-            AgentCommand(type: .cancel, sessionId: session.id, payload: nil)
-        )
+        await terminateSession(session.id)
     }
 
     @MainActor
     func retrySession(_ session: Session) async throws {
-        guard session.status == .failed else { return }
+        guard session.status == .failed || session.status == .cancelled else { return }
 
         var updated = session
-        updated.status = .running
+        updated.status = .waiting
         updated.endedAt = nil
+        updated.errorMessage = nil
+        updated.processId = nil
         updated.metrics.errorCount = 0
         updateSession(updated)
+    }
 
-        try await agentService.sendCommand(
-            AgentCommand(type: .retry, sessionId: session.id, payload: nil)
-        )
+    // MARK: - Process Lifecycle
+
+    func getOrCreateBridge(for sessionId: UUID) -> TerminalBridge {
+        if let bridge = bridges[sessionId] {
+            return bridge
+        }
+        let bridge = TerminalBridge()
+        bridges[sessionId] = bridge
+        return bridge
+    }
+
+    @MainActor
+    func startSession(_ sessionId: UUID, terminal: SwiftTerm.TerminalView) async {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }),
+              sessions[index].status == .waiting else { return }
+        guard !startingSessionIds.contains(sessionId) else { return }
+        startingSessionIds.insert(sessionId)
+        defer { startingSessionIds.remove(sessionId) }
+
+        let session = sessions[index]
+        let bridge = getOrCreateBridge(for: sessionId)
+        bridge.attachTerminal(terminal, onTermination: { [weak self] exitCode in
+            let code = exitCode ?? -1
+            Task { @MainActor [weak self] in
+                self?.handleProcessExit(sessionId: sessionId, exitCode: code)
+            }
+        }, onDataReceived: { [weak self] data in
+            Task { @MainActor [weak self] in
+                self?.handleTerminalOutput(sessionId: sessionId, data: data)
+            }
+        })
+
+        let workingDir = session.workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+        let didAccess = startAccessingSecurityScopedResource(for: sessionId, url: workingDir)
+        let didAccessExecutable = startAccessingExecutable(for: sessionId, agentType: session.agentType)
+
+        do {
+            let result = try await processManager.spawn(
+                sessionId: sessionId,
+                agentType: session.agentType,
+                workingDirectory: workingDir,
+                bridge: bridge
+            )
+
+            sessions[index].status = .running
+            sessions[index].processId = result.process.shellPid
+            invalidateCache()
+            persistSession(sessions[index])
+
+            AppLogger.logSessionStatusChanged(sessions[index], from: .waiting)
+
+        } catch {
+            if didAccess {
+                stopAccessingSecurityScopedResource(sessionId: sessionId)
+            }
+            if didAccessExecutable {
+                stopAccessingExecutable(sessionId: sessionId)
+            }
+            bridge.disconnect()
+            sessions[index].status = .failed
+            sessions[index].errorMessage = error.localizedDescription
+            sessions[index].endedAt = Date()
+            invalidateCache()
+            persistSession(sessions[index])
+
+            AppLogger.logError(error, context: "starting session \(sessionId)")
+        }
+    }
+
+    @MainActor
+    func terminateSession(_ sessionId: UUID) async {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+
+        let previousStatus = sessions[index].status
+        await processManager.terminate(sessionId: sessionId)
+        bridges[sessionId]?.disconnect()
+        bridges.removeValue(forKey: sessionId)
+        stopAccessingSecurityScopedResource(sessionId: sessionId)
+        stopAccessingExecutable(sessionId: sessionId)
+
+        sessions[index].status = .cancelled
+        sessions[index].endedAt = Date()
+        sessions[index].processId = nil
+        invalidateCache()
+        persistSession(sessions[index])
+
+        AppLogger.logSessionStatusChanged(sessions[index], from: previousStatus)
+    }
+
+    @MainActor
+    private func handleProcessExit(sessionId: UUID, exitCode: Int32) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+
+        let previousStatus = sessions[index].status
+        sessions[index].status = exitCode == 0 ? .completed : .failed
+        sessions[index].endedAt = Date()
+        sessions[index].processId = nil
+        if exitCode != 0 {
+            sessions[index].errorMessage = "Process exited with code \(exitCode)"
+            sessions[index].metrics.errorCount += 1
+        }
+
+        bridges[sessionId]?.disconnect()
+        bridges.removeValue(forKey: sessionId)
+        Task { await processManager.cleanup(sessionId: sessionId) }
+        stopAccessingSecurityScopedResource(sessionId: sessionId)
+        stopAccessingExecutable(sessionId: sessionId)
+
+        invalidateCache()
+        persistSession(sessions[index])
+
+        AppLogger.logSessionStatusChanged(sessions[index], from: previousStatus)
+    }
+
+    @MainActor
+    private func handleTerminalOutput(sessionId: UUID, data: Data) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        
+        if sessions[index].terminalOutput == nil {
+            sessions[index].terminalOutput = Data()
+        }
+        sessions[index].terminalOutput?.append(data)
+        
+        // Debounce persistence? For now, we'll rely on periodic saves or just save on major events if high frequency is an issue.
+        // But to be safe properly, let's persist.
+        // Optimization: In a real app we might throttle this.
+        persistSession(sessions[index])
     }
 
     // MARK: - Message & Tool Call Management
@@ -298,18 +448,24 @@ final class SessionStore {
 
                 // For now, just reload from persistence
                 if let persistence = persistence {
-                    let persisted = try await persistence.loadSessions()
-                    if !persisted.isEmpty {
-                        sessions = persisted
-                        invalidateCache()
-                    }
+                    let summaries = try await persistence.loadSessionSummaries()
+                    await applySessionSummaries(summaries)
                 }
             }
+            await detectRunningAgents()
         } catch {
             self.error = error.localizedDescription
             AppLogger.logError(error, context: "refresh")
         }
 
+        isLoading = false
+    }
+
+    @MainActor
+    func refreshExternalProcesses() async {
+        if isLoading { return }
+        isLoading = true
+        await detectRunningAgents()
         isLoading = false
     }
 
@@ -352,6 +508,53 @@ final class SessionStore {
         filteredCache = nil
     }
 
+    @MainActor
+    private func cleanupProcessResources(sessionId: UUID) async {
+        await processManager.terminate(sessionId: sessionId)
+        bridges[sessionId]?.disconnect()
+        bridges.removeValue(forKey: sessionId)
+        stopAccessingSecurityScopedResource(sessionId: sessionId)
+        stopAccessingExecutable(sessionId: sessionId)
+    }
+
+    private func startAccessingSecurityScopedResource(for sessionId: UUID, url: URL) -> Bool {
+        if securityScopedResources[sessionId] != nil {
+            return true
+        }
+        guard url.startAccessingSecurityScopedResource() else {
+            return false
+        }
+        securityScopedResources[sessionId] = url
+        return true
+    }
+
+    private func stopAccessingSecurityScopedResource(sessionId: UUID) {
+        if let url = securityScopedResources.removeValue(forKey: sessionId) {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
+
+    private func startAccessingExecutable(for sessionId: UUID, agentType: AgentType) -> Bool {
+        guard let url = agentType.overrideExecutableURL(),
+              agentType.overrideExecutableBookmarkData != nil else {
+            return false
+        }
+        if securityScopedExecutables[sessionId] != nil {
+            return true
+        }
+        guard url.startAccessingSecurityScopedResource() else {
+            return false
+        }
+        securityScopedExecutables[sessionId] = url
+        return true
+    }
+
+    private func stopAccessingExecutable(sessionId: UUID) {
+        if let url = securityScopedExecutables.removeValue(forKey: sessionId) {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
+
     private func persistSession(_ session: Session) {
         Task {
             do {
@@ -366,18 +569,18 @@ final class SessionStore {
     private func loadPersistedSessions() async {
         guard let persistence = persistence else {
             loadMockData()
+            await detectRunningAgents()
             return
         }
 
         isLoading = true
 
         do {
-            let persisted = try await persistence.loadSessions()
-            if persisted.isEmpty {
+            let summaries = try await persistence.loadSessionSummaries()
+            if summaries.isEmpty {
                 loadMockData()
             } else {
-                sessions = persisted
-                selectedSessionId = sessions.first?.id
+                await applySessionSummaries(summaries)
             }
         } catch {
             AppLogger.logPersistenceError(error, context: "loading sessions")
@@ -385,13 +588,82 @@ final class SessionStore {
         }
 
         isLoading = false
+        await detectRunningAgents()
+    }
+
+    @MainActor
+    private func applySessionSummaries(_ summaries: [SessionSummary]) async {
+        let sorted = summaries.sorted { $0.startedAt > $1.startedAt }
+        sessions = sorted.map { $0.toSession() }
+        if let current = selectedSessionId, sessions.contains(where: { $0.id == current }) {
+            // Keep current selection
+        } else {
+            selectedSessionId = sessions.first?.id
+        }
+        invalidateCache()
+        if let selected = selectedSessionId {
+            await loadSessionDetailsIfNeeded(selected)
+        }
+    }
+
+    @MainActor
+    private func loadSessionDetailsIfNeeded(_ sessionId: UUID) async {
+        guard let persistence = persistence else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard !sessions[index].isExternalProcess else { return }
+        guard !sessions[index].isFullyLoaded else { return }
+        guard !loadingSessionIds.contains(sessionId) else { return }
+
+        loadingSessionIds.insert(sessionId)
+        defer { loadingSessionIds.remove(sessionId) }
+
+        do {
+            if let loaded = try await persistence.loadSession(sessionId) {
+                let merged = mergeLoadedSession(current: sessions[index], loaded: loaded)
+                sessions[index] = merged
+                invalidateCache()
+            }
+        } catch {
+            AppLogger.logPersistenceError(error, context: "loading session details \(sessionId)")
+        }
+    }
+
+    @MainActor
+    private func detectRunningAgents() async {
+        guard !isRunningTests else { return }
+        let detected = await AgentProcessDiscovery().detect()
+        let existingPids = Set(sessions.compactMap { $0.processId })
+        var added = false
+
+        for process in detected where !existingPids.contains(process.pid) {
+            let startedAt = Date().addingTimeInterval(-TimeInterval(process.elapsedSeconds))
+            let session = Session(
+                name: "\(process.agentType.displayName) (Detected \(process.pid))",
+                status: .running,
+                agentType: process.agentType,
+                startedAt: startedAt,
+                workingDirectory: nil,
+                processId: process.pid,
+                isExternalProcess: true
+            )
+            sessions.insert(session, at: 0)
+            added = true
+        }
+
+        if added {
+            invalidateCache()
+        }
+    }
+
+    var detectedExternalCount: Int {
+        sessions.filter { $0.isExternalProcess }.count
     }
 
     private func loadMockData() {
-        // Claude Code session - running
+        // Claude Code session - waiting (will spawn when terminal view loads)
         let session1 = Session(
             name: "Fix authentication bug",
-            status: .running,
+            status: .waiting,
             agentType: .claudeCode,
             startedAt: Date().addingTimeInterval(-3600),
             messages: [
@@ -478,10 +750,10 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 0, inputTokens: 0, outputTokens: 0, toolCallCount: 0, errorCount: 0, apiCalls: 0)
         )
 
-        // Codex session - running
+        // Codex session - waiting (will spawn when terminal view loads)
         let session6 = Session(
             name: "Refactor API endpoints",
-            status: .running,
+            status: .waiting,
             agentType: .codex,
             startedAt: Date().addingTimeInterval(-900),
             messages: [
@@ -497,5 +769,109 @@ final class SessionStore {
 
         sessions = [session1, session2, session3, session4, session5, session6]
         selectedSessionId = session1.id
+    }
+
+    private func mergeLoadedSession(current: Session, loaded: Session) -> Session {
+        var merged = loaded
+        merged.name = current.name
+        merged.agentType = current.agentType
+        merged.startedAt = current.startedAt
+        merged.status = current.status
+        merged.workingDirectory = current.workingDirectory ?? loaded.workingDirectory
+        merged.processId = current.processId ?? loaded.processId
+        merged.errorMessage = current.errorMessage ?? loaded.errorMessage
+        merged.endedAt = current.endedAt ?? loaded.endedAt
+        merged.isExternalProcess = current.isExternalProcess || loaded.isExternalProcess
+        merged.isFullyLoaded = true
+        return merged
+    }
+}
+
+private struct DetectedAgentProcess: Hashable {
+    let pid: Int32
+    let agentType: AgentType
+    let elapsedSeconds: Int
+    let command: String
+}
+
+private final class AgentProcessDiscovery {
+    func detect() async -> [DetectedAgentProcess] {
+        await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-axo", "pid=,etimes=,comm=,args="]
+
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.standardOutput = stdout
+            process.standardError = stderr
+
+            do {
+                try process.run()
+            } catch {
+                return []
+            }
+
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                return []
+            }
+
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            // Continue parsing in background...
+            return self.parseOutput(data)
+        }.value
+    }
+
+    private func parseOutput(_ data: Data) -> [DetectedAgentProcess] {
+        guard let output = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        return output
+            .split(separator: "\n")
+            .compactMap { parseLine(String($0)) }
+    }
+
+    private func parseLine(_ line: String) -> DetectedAgentProcess? {
+        let parts = line.split(maxSplits: 3, omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
+        guard parts.count >= 3 else { return nil }
+
+        guard let pid = Int32(parts[0]) else { return nil }
+        let elapsedSeconds = Int(parts[1]) ?? 0
+        let comm = String(parts[2])
+        let args = parts.count > 3 ? String(parts[3]) : comm
+        let haystack = (comm + " " + args).lowercased()
+
+        if matchesAgent(.claudeCode, in: haystack) {
+            return DetectedAgentProcess(pid: pid, agentType: .claudeCode, elapsedSeconds: elapsedSeconds, command: args)
+        }
+        if matchesAgent(.codex, in: haystack) {
+            return DetectedAgentProcess(pid: pid, agentType: .codex, elapsedSeconds: elapsedSeconds, command: args)
+        }
+
+        return nil
+    }
+
+    private func matchesAgent(_ agentType: AgentType, in haystack: String) -> Bool {
+        let base = URL(fileURLWithPath: agentType.executablePath).lastPathComponent.lowercased()
+        let tokens = tokenize(haystack)
+        var aliases = agentType.executableNames.map { $0.lowercased() }
+        if !aliases.contains(base) {
+            aliases.append(base)
+        }
+
+        if tokens.contains(where: { aliases.contains($0) }) {
+            return true
+        }
+        if aliases.contains(where: { haystack.contains("/\($0)") }) {
+            return true
+        }
+        return false
+    }
+
+    private func tokenize(_ text: String) -> Set<String> {
+        let tokens = text.lowercased().split { !$0.isLetter && !$0.isNumber }
+        return Set(tokens.map(String.init))
     }
 }
