@@ -203,5 +203,3 @@ extension ToolCall: Codable {
         try container.encodeIfPresent(error, forKey: .error)
     }
 }
-
-extension SessionMetrics: Codable {}

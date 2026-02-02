@@ -7,14 +7,12 @@ struct SessionListView: View {
     var body: some View {
         @Bindable var store = sessionStore
 
-        // Use optimized cached filtering that partitions in a single pass
-        let (activeSessions, otherSessions) = sessionStore.filteredSessions(
-            searchText: appState.searchText,
-            status: appState.filterStatus,
-            sortOrder: appState.sortOrder
-        )
+        // Direct access to sessions for proper SwiftUI observation
+        let allSessions = sessionStore.sessions
+        let activeSessions = allSessions.filter { $0.status == .running || $0.status == .waiting }
+        let otherSessions = allSessions.filter { $0.status != .running && $0.status != .waiting }
 
-        let isEmpty = activeSessions.isEmpty && otherSessions.isEmpty
+        let isEmpty = allSessions.isEmpty
 
         List(selection: $store.selectedSessionId) {
             if !activeSessions.isEmpty {
@@ -41,7 +39,7 @@ struct SessionListView: View {
                 ContentUnavailableView {
                     Label("No Sessions", systemImage: "tray")
                 } description: {
-                    Text("No sessions match your search criteria")
+                    Text("Create a new session to get started")
                 }
             }
         }

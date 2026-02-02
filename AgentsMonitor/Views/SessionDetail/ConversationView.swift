@@ -1,5 +1,7 @@
 import SwiftUI
 
+import SwiftUI
+
 struct ConversationView: View {
     let messages: [Message]
     @State private var scrollToBottom = true

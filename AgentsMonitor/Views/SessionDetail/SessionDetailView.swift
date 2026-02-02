@@ -1,5 +1,7 @@
 import SwiftUI
 
+import SwiftUI
+
 struct SessionDetailView: View {
     let session: Session
     @Environment(AppState.self) private var appState
@@ -13,33 +15,31 @@ struct SessionDetailView: View {
 
             Divider()
 
-            TabView(selection: $state.selectedDetailTab) {
-                ConversationView(messages: session.messages)
-                    .tabItem {
-                        Label("Conversation", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .tag(AppState.DetailTab.conversation)
-
-                ToolCallsView(toolCalls: session.toolCalls)
-                    .tabItem {
-                        Label("Tool Calls", systemImage: "wrench.and.screwdriver")
-                    }
-                    .tag(AppState.DetailTab.toolCalls)
-
-                MetricsView(metrics: session.metrics, session: session)
-                    .tabItem {
-                        Label("Metrics", systemImage: "chart.bar")
-                    }
-                    .tag(AppState.DetailTab.metrics)
+            // Custom tab picker to avoid macOS TabView toolbar crash
+            Picker("", selection: $state.selectedDetailTab) {
+                ForEach(AppState.DetailTab.allCases, id: \.self) { tab in
+                    Label(tab.rawValue, systemImage: tab.icon)
+                        .tag(tab)
+                }
             }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
             .padding(.top, 8)
+
+            // Content based on selection
+            Group {
+                switch state.selectedDetailTab {
+                case .conversation:
+                    ConversationView(messages: session.messages)
+                case .toolCalls:
+                    ToolCallsView(toolCalls: session.toolCalls)
+                case .metrics:
+                    MetricsView(metrics: session.metrics, session: session)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(session.name)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                SessionActionButtons(session: session)
-            }
-        }
     }
 }
 
@@ -228,7 +228,7 @@ struct SessionActionButtons: View {
             defaultFilename: "\(session.name.replacingOccurrences(of: " ", with: "-")).json"
         ) { result in
             switch result {
-            case .success(let url):
+            case .success:
                 AppLogger.logPersistenceSaved(session.id)
             case .failure(let error):
                 actionError = error.localizedDescription

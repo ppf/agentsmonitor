@@ -132,7 +132,7 @@ enum AgentType: String, CaseIterable, Codable {
     }
 }
 
-struct SessionMetrics: Hashable {
+struct SessionMetrics: Hashable, Codable {
     var totalTokens: Int
     var inputTokens: Int
     var outputTokens: Int
