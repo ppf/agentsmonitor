@@ -29,6 +29,45 @@ actor SessionPersistence {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         decoder.dateDecodingStrategy = .iso8601
+
+        migrateLegacySessionsIfNeeded()
+    }
+
+    private func migrateLegacySessionsIfNeeded() {
+        let legacyDirectory = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent("AgentsMonitor")
+            .appendingPathComponent("Sessions")
+
+        guard legacyDirectory.path != sessionsDirectory.path else { return }
+        guard fileManager.fileExists(atPath: legacyDirectory.path) else { return }
+
+        do {
+            let legacyFiles = try fileManager.contentsOfDirectory(
+                at: legacyDirectory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+
+            var migratedCount = 0
+            for file in legacyFiles where file.pathExtension == "json" {
+                let destination = sessionsDirectory.appendingPathComponent(file.lastPathComponent)
+                if !fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.copyItem(at: file, to: destination)
+                    migratedCount += 1
+                }
+            }
+
+            if migratedCount > 0 {
+                AppLogger.logWarning(
+                    "Migrated \(migratedCount) legacy session file(s) into sandbox storage",
+                    context: "SessionPersistence"
+                )
+            }
+        } catch {
+            AppLogger.logPersistenceError(error, context: "migrating legacy sessions")
+        }
     }
 
     // MARK: - Load Sessions
@@ -69,7 +108,38 @@ actor SessionPersistence {
             .compactMap { url -> SessionSummary? in
                 do {
                     let data = try Data(contentsOf: url)
-                    return try decoder.decode(SessionSummary.self, from: data)
+                    
+                    // First try to decode as SessionSummary
+                    if let summary = try? decoder.decode(SessionSummary.self, from: data) {
+                        return summary
+                    }
+                    
+                    // If that fails, try to decode as full Session and convert to summary
+                    if let session = try? decoder.decode(Session.self, from: data) {
+                        AppLogger.logWarning("Loaded full session as summary for \(url.lastPathComponent)", context: "loadSessionSummaries")
+                        return SessionSummary(
+                            id: session.id,
+                            name: session.name,
+                            status: session.status,
+                            agentType: session.agentType,
+                            startedAt: session.startedAt,
+                            endedAt: session.endedAt,
+                            metrics: session.metrics,
+                            workingDirectory: session.workingDirectory,
+                            processId: session.processId,
+                            errorMessage: session.errorMessage,
+                            isExternalProcess: session.isExternalProcess,
+                            terminalOutput: session.terminalOutput
+                        )
+                    }
+                    
+                    // If both fail, log the error
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: [],
+                            debugDescription: "Could not decode as SessionSummary or Session"
+                        )
+                    )
                 } catch {
                     AppLogger.logPersistenceError(error, context: "loading session summary from \(url.lastPathComponent)")
                     return nil

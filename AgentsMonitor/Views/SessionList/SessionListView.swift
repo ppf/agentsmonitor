@@ -96,8 +96,8 @@ struct SessionRowView: View {
 
             if session.status == .running {
                 ProgressView()
+                    .controlSize(.mini)
                     .frame(width: 16, height: 16)
-                    .scaleEffect(0.6)
                     .accessibilityLabel("Session in progress")
             }
         }

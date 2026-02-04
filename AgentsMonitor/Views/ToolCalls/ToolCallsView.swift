@@ -154,8 +154,8 @@ struct StatusPill: View {
         HStack(spacing: 4) {
             if status == .running {
                 ProgressView()
+                    .controlSize(.mini)
                     .frame(width: 16, height: 16)
-                    .scaleEffect(0.5)
             } else {
                 Image(systemName: status.icon)
             }

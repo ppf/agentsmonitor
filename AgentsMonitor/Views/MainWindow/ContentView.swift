@@ -112,8 +112,8 @@ struct LoadingOverlay: View {
 
             VStack(spacing: 12) {
                 ProgressView()
+                    .controlSize(.small)
                     .frame(width: 20, height: 20)
-                    .scaleEffect(1.2)
                 Text("Loading...")
                     .font(.caption)
                     .foregroundStyle(.secondary)

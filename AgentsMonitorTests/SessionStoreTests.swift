@@ -749,8 +749,7 @@ final class SessionMetricsTests: XCTestCase {
         let metrics = SessionMetrics(totalTokens: 1234567)
         let formatted = metrics.formattedTokens
 
-        // Should be formatted with separators
-        XCTAssertTrue(formatted.contains(",") || formatted.count >= 7)
+        XCTAssertEqual(formatted, "1.2M")
     }
 
     func testMetricsEquality() {

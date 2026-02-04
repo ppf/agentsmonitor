@@ -53,16 +53,24 @@ struct Session: Identifiable, Hashable {
         self.terminalOutput = terminalOutput
     }
 
-    var duration: TimeInterval {
-        let end = endedAt ?? Date()
+    func duration(asOf date: Date) -> TimeInterval {
+        let end = endedAt ?? date
         return end.timeIntervalSince(startedAt)
     }
 
-    var formattedDuration: String {
+    func formattedDuration(asOf date: Date) -> String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute, .second]
         formatter.unitsStyle = .abbreviated
-        return formatter.string(from: duration) ?? "0s"
+        return formatter.string(from: duration(asOf: date)) ?? "0s"
+    }
+
+    var duration: TimeInterval {
+        duration(asOf: Date())
+    }
+
+    var formattedDuration: String {
+        formattedDuration(asOf: Date())
     }
 
     static func == (lhs: Session, rhs: Session) -> Bool {
@@ -87,11 +95,64 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
     let errorMessage: String?
     let isExternalProcess: Bool
     let terminalOutput: Data?
+    
+    // Memberwise initializer
+    init(
+        id: UUID,
+        name: String,
+        status: SessionStatus,
+        agentType: AgentType,
+        startedAt: Date,
+        endedAt: Date? = nil,
+        metrics: SessionMetrics,
+        workingDirectory: URL? = nil,
+        processId: Int32? = nil,
+        errorMessage: String? = nil,
+        isExternalProcess: Bool = false,
+        terminalOutput: Data? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.status = status
+        self.agentType = agentType
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.metrics = metrics
+        self.workingDirectory = workingDirectory
+        self.processId = processId
+        self.errorMessage = errorMessage
+        self.isExternalProcess = isExternalProcess
+        self.terminalOutput = terminalOutput
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, name, status, agentType, startedAt, endedAt
         case metrics, workingDirectory, processId, errorMessage, isExternalProcess
         case terminalOutput
+        // Ignored keys from full Session
+        case messages, toolCalls
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decode(SessionStatus.self, forKey: .status)
+        agentType = try container.decode(AgentType.self, forKey: .agentType)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        
+        // Try to decode metrics, if it fails use default
+        metrics = (try? container.decode(SessionMetrics.self, forKey: .metrics)) ?? SessionMetrics()
+        
+        workingDirectory = try container.decodeIfPresent(URL.self, forKey: .workingDirectory)
+        processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        isExternalProcess = (try? container.decodeIfPresent(Bool.self, forKey: .isExternalProcess)) ?? false
+        terminalOutput = try container.decodeIfPresent(Data.self, forKey: .terminalOutput)
+        
+        // messages and toolCalls are ignored for summary
     }
 
     func toSession() -> Session {
@@ -476,6 +537,8 @@ struct SessionMetrics: Hashable, Codable {
     var toolCallCount: Int
     var errorCount: Int
     var apiCalls: Int
+    var cacheReadTokens: Int
+    var cacheWriteTokens: Int
 
     init(
         totalTokens: Int = 0,
@@ -483,7 +546,9 @@ struct SessionMetrics: Hashable, Codable {
         outputTokens: Int = 0,
         toolCallCount: Int = 0,
         errorCount: Int = 0,
-        apiCalls: Int = 0
+        apiCalls: Int = 0,
+        cacheReadTokens: Int = 0,
+        cacheWriteTokens: Int = 0
     ) {
         self.totalTokens = totalTokens
         self.inputTokens = inputTokens
@@ -491,11 +556,40 @@ struct SessionMetrics: Hashable, Codable {
         self.toolCallCount = toolCallCount
         self.errorCount = errorCount
         self.apiCalls = apiCalls
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+    }
+    
+    // Custom decoder to handle old JSON files without cache fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        inputTokens = try container.decode(Int.self, forKey: .inputTokens)
+        outputTokens = try container.decode(Int.self, forKey: .outputTokens)
+        toolCallCount = try container.decode(Int.self, forKey: .toolCallCount)
+        errorCount = try container.decode(Int.self, forKey: .errorCount)
+        apiCalls = try container.decode(Int.self, forKey: .apiCalls)
+        
+        // New fields - use default if missing
+        cacheReadTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)) ?? 0
+        cacheWriteTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheWriteTokens)) ?? 0
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case totalTokens, inputTokens, outputTokens
+        case toolCallCount, errorCount, apiCalls
+        case cacheReadTokens, cacheWriteTokens
     }
 
     var formattedTokens: String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: totalTokens)) ?? "\(totalTokens)"
+        let total = totalTokens
+        if total >= 1_000_000 {
+            return String(format: "%.1fM", Double(total) / 1_000_000)
+        } else if total >= 1_000 {
+            return String(format: "%.1fK", Double(total) / 1_000)
+        } else {
+            return "\(total)"
+        }
     }
 }

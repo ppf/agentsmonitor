@@ -41,6 +41,7 @@ final class SessionStore {
 
     private let agentService: AgentService
     private let persistence: SessionPersistence?
+    private let environment: AppEnvironment
     private let processManager = AgentProcessManager()
     private var bridges: [UUID: TerminalBridge] = [:]
     private var securityScopedResources: [UUID: URL] = [:]
@@ -48,14 +49,19 @@ final class SessionStore {
     private var loadingSessionIds: Set<UUID> = []
     private var startingSessionIds: Set<UUID> = []
     private var isRunningTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        environment.isTesting
     }
 
     // MARK: - Initialization
 
-    init(agentService: AgentService = AgentService(), persistence: SessionPersistence? = SessionPersistence.shared) {
+    init(
+        agentService: AgentService = AgentService(),
+        persistence: SessionPersistence? = SessionPersistence.shared,
+        environment: AppEnvironment = .current
+    ) {
         self.agentService = agentService
-        self.persistence = persistence
+        self.environment = environment
+        self.persistence = environment.isUITesting ? nil : persistence
 
         AgentType.seedSuggestedOverridesIfNeeded()
 
@@ -78,6 +84,10 @@ final class SessionStore {
 
     var runningSessions: [Session] {
         sessions.filter { $0.status == .running }
+    }
+
+    var activeSessions: [Session] {
+        sessions.filter { $0.status == .running || $0.status == .waiting }
     }
 
     var completedSessions: [Session] {
@@ -474,6 +484,10 @@ final class SessionStore {
         guard hasMorePages, !isLoading else { return }
 
         isLoading = true
+        if environment.isTesting {
+            isLoading = false
+            return
+        }
 
         do {
             // In production, this would fetch the next page from the API
@@ -567,7 +581,14 @@ final class SessionStore {
 
     @MainActor
     private func loadPersistedSessions() async {
+        if environment.isUITesting {
+            AppLogger.logWarning("UI testing mode active, loading deterministic mock data", context: "loadPersistedSessions")
+            loadMockData(referenceDate: environment.now, sessionCount: environment.mockSessionCount)
+            return
+        }
+
         guard let persistence = persistence else {
+            AppLogger.logWarning("No persistence available, loading mock data", context: "loadPersistedSessions")
             loadMockData()
             await detectRunningAgents()
             return
@@ -577,18 +598,36 @@ final class SessionStore {
 
         do {
             let summaries = try await persistence.loadSessionSummaries()
+            AppLogger.logPersistenceLoaded(count: summaries.count)
+            
             if summaries.isEmpty {
-                loadMockData()
+                // First detect running agents to see if we have any real sessions
+                await detectRunningAgents()
+                
+                // Only load mock data if we have no detected agents either
+                if sessions.isEmpty {
+                    AppLogger.logWarning("No persisted or running sessions found, loading mock data", context: "loadPersistedSessions")
+                    loadMockData()
+                } else {
+                    AppLogger.logWarning("No persisted sessions found, but detected \(sessions.count) running agent(s)", context: "loadPersistedSessions")
+                }
             } else {
                 await applySessionSummaries(summaries)
+                // Still detect running agents to add them to the list
+                await detectRunningAgents()
             }
         } catch {
             AppLogger.logPersistenceError(error, context: "loading sessions")
-            loadMockData()
+            AppLogger.logWarning("Failed to load persisted sessions, trying to detect running agents", context: "loadPersistedSessions")
+            await detectRunningAgents()
+            
+            // Only load mock data if we have no detected agents
+            if sessions.isEmpty {
+                loadMockData()
+            }
         }
 
         isLoading = false
-        await detectRunningAgents()
     }
 
     @MainActor
@@ -637,44 +676,84 @@ final class SessionStore {
 
         for process in detected where !existingPids.contains(process.pid) {
             let startedAt = Date().addingTimeInterval(-TimeInterval(process.elapsedSeconds))
+            
+            // Try to get the working directory for the process
+            let workingDir = getWorkingDirectory(for: process.pid)
+            
             let session = Session(
-                name: "\(process.agentType.displayName) (Detected \(process.pid))",
+                name: "\(process.agentType.displayName) - PID \(process.pid)",
                 status: .running,
                 agentType: process.agentType,
                 startedAt: startedAt,
-                workingDirectory: nil,
+                workingDirectory: workingDir,
                 processId: process.pid,
                 isExternalProcess: true
             )
             sessions.insert(session, at: 0)
             added = true
+            
+            AppLogger.logSessionCreated(session)
         }
 
         if added {
             invalidateCache()
         }
     }
+    
+    /// Get the working directory for a running process
+    private func getWorkingDirectory(for pid: Int32) -> URL? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
+        process.arguments = ["-a", "-p", "\(pid)", "-d", "cwd", "-Fn"]
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            guard process.terminationStatus == 0 else { return nil }
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+            
+            // Parse lsof output to find the cwd
+            for line in output.split(separator: "\n") {
+                if line.starts(with: "n") {
+                    let path = String(line.dropFirst())
+                    return URL(fileURLWithPath: path)
+                }
+            }
+        } catch {
+            AppLogger.logError(error, context: "Getting working directory for PID \(pid)")
+        }
+        
+        return nil
+    }
 
     var detectedExternalCount: Int {
         sessions.filter { $0.isExternalProcess }.count
     }
 
-    private func loadMockData() {
-        // Claude Code session - waiting (will spawn when terminal view loads)
+    private func loadMockData(referenceDate: Date = Date(), sessionCount: Int? = nil) {
+        let now = referenceDate
+        // Claude Code session - waiting
         let session1 = Session(
             name: "Fix authentication bug",
             status: .waiting,
             agentType: .claudeCode,
-            startedAt: Date().addingTimeInterval(-3600),
+            startedAt: now.addingTimeInterval(-3600),
             messages: [
-                Message(role: .user, content: "Fix the authentication bug in the login flow", timestamp: Date().addingTimeInterval(-3600)),
-                Message(role: .assistant, content: "I'll analyze the authentication code and identify the bug. Let me start by reading the relevant files.", timestamp: Date().addingTimeInterval(-3590)),
-                Message(role: .assistant, content: "I found the issue. The token validation is not checking for expiration properly. Let me fix this.", timestamp: Date().addingTimeInterval(-3500), isStreaming: true)
+                Message(role: .user, content: "Fix the authentication bug in the login flow", timestamp: now.addingTimeInterval(-3600)),
+                Message(role: .assistant, content: "I'll analyze the authentication code and identify the bug. Let me start by reading the relevant files.", timestamp: now.addingTimeInterval(-3590)),
+                Message(role: .assistant, content: "I found the issue. The token validation is not checking for expiration properly. Let me fix this.", timestamp: now.addingTimeInterval(-3500), isStreaming: true)
             ],
             toolCalls: [
-                ToolCall(name: "Read", input: "src/auth/login.ts", output: "// Login code...", startedAt: Date().addingTimeInterval(-3580), completedAt: Date().addingTimeInterval(-3578), status: .completed),
-                ToolCall(name: "Grep", input: "validateToken", output: "Found 3 matches", startedAt: Date().addingTimeInterval(-3570), completedAt: Date().addingTimeInterval(-3565), status: .completed),
-                ToolCall(name: "Edit", input: "src/auth/validate.ts", startedAt: Date().addingTimeInterval(-3520), status: .running)
+                ToolCall(name: "Read", input: "src/auth/login.ts", output: "// Login code...", startedAt: now.addingTimeInterval(-3580), completedAt: now.addingTimeInterval(-3578), status: .completed),
+                ToolCall(name: "Grep", input: "validateToken", output: "Found 3 matches", startedAt: now.addingTimeInterval(-3570), completedAt: now.addingTimeInterval(-3565), status: .completed),
+                ToolCall(name: "Edit", input: "src/auth/validate.ts", startedAt: now.addingTimeInterval(-3520), status: .running)
             ],
             metrics: SessionMetrics(totalTokens: 15420, inputTokens: 8200, outputTokens: 7220, toolCallCount: 3, errorCount: 0, apiCalls: 5)
         )
@@ -684,17 +763,17 @@ final class SessionStore {
             name: "Generate unit tests",
             status: .completed,
             agentType: .codex,
-            startedAt: Date().addingTimeInterval(-7200),
-            endedAt: Date().addingTimeInterval(-5400),
+            startedAt: now.addingTimeInterval(-7200),
+            endedAt: now.addingTimeInterval(-5400),
             messages: [
-                Message(role: .user, content: "Generate comprehensive unit tests for the UserService class", timestamp: Date().addingTimeInterval(-7200)),
-                Message(role: .assistant, content: "I'll analyze the UserService class and generate unit tests covering all public methods and edge cases.", timestamp: Date().addingTimeInterval(-7190)),
-                Message(role: .assistant, content: "Successfully generated 24 unit tests for UserService with 100% coverage of public methods.", timestamp: Date().addingTimeInterval(-5400))
+                Message(role: .user, content: "Generate comprehensive unit tests for the UserService class", timestamp: now.addingTimeInterval(-7200)),
+                Message(role: .assistant, content: "I'll analyze the UserService class and generate unit tests covering all public methods and edge cases.", timestamp: now.addingTimeInterval(-7190)),
+                Message(role: .assistant, content: "Successfully generated 24 unit tests for UserService with 100% coverage of public methods.", timestamp: now.addingTimeInterval(-5400))
             ],
             toolCalls: [
-                ToolCall(name: "Read", input: "src/services/UserService.ts", output: "// UserService implementation", startedAt: Date().addingTimeInterval(-7180), completedAt: Date().addingTimeInterval(-7175), status: .completed),
-                ToolCall(name: "Write", input: "tests/UserService.test.ts", output: "Created test file", startedAt: Date().addingTimeInterval(-6800), completedAt: Date().addingTimeInterval(-6750), status: .completed),
-                ToolCall(name: "Bash", input: "npm test -- UserService", output: "All 24 tests passed", startedAt: Date().addingTimeInterval(-6700), completedAt: Date().addingTimeInterval(-6650), status: .completed)
+                ToolCall(name: "Read", input: "src/services/UserService.ts", output: "// UserService implementation", startedAt: now.addingTimeInterval(-7180), completedAt: now.addingTimeInterval(-7175), status: .completed),
+                ToolCall(name: "Write", input: "tests/UserService.test.ts", output: "Created test file", startedAt: now.addingTimeInterval(-6800), completedAt: now.addingTimeInterval(-6750), status: .completed),
+                ToolCall(name: "Bash", input: "npm test -- UserService", output: "All 24 tests passed", startedAt: now.addingTimeInterval(-6700), completedAt: now.addingTimeInterval(-6650), status: .completed)
             ],
             metrics: SessionMetrics(totalTokens: 32150, inputTokens: 14200, outputTokens: 17950, toolCallCount: 5, errorCount: 0, apiCalls: 8)
         )
@@ -704,17 +783,17 @@ final class SessionStore {
             name: "Add dark mode support",
             status: .completed,
             agentType: .claudeCode,
-            startedAt: Date().addingTimeInterval(-10800),
-            endedAt: Date().addingTimeInterval(-9000),
+            startedAt: now.addingTimeInterval(-10800),
+            endedAt: now.addingTimeInterval(-9000),
             messages: [
-                Message(role: .user, content: "Add dark mode support to the settings page", timestamp: Date().addingTimeInterval(-10800)),
-                Message(role: .assistant, content: "I'll implement dark mode support for the settings page. This will involve adding a theme toggle and updating the CSS variables.", timestamp: Date().addingTimeInterval(-10790)),
-                Message(role: .assistant, content: "Dark mode has been successfully implemented. The theme toggle is now available in settings and persists across sessions.", timestamp: Date().addingTimeInterval(-9000))
+                Message(role: .user, content: "Add dark mode support to the settings page", timestamp: now.addingTimeInterval(-10800)),
+                Message(role: .assistant, content: "I'll implement dark mode support for the settings page. This will involve adding a theme toggle and updating the CSS variables.", timestamp: now.addingTimeInterval(-10790)),
+                Message(role: .assistant, content: "Dark mode has been successfully implemented. The theme toggle is now available in settings and persists across sessions.", timestamp: now.addingTimeInterval(-9000))
             ],
             toolCalls: [
-                ToolCall(name: "Read", input: "src/settings/Settings.tsx", output: "// Settings component", startedAt: Date().addingTimeInterval(-10780), completedAt: Date().addingTimeInterval(-10775), status: .completed),
-                ToolCall(name: "Edit", input: "src/settings/Settings.tsx", output: "Added theme toggle", startedAt: Date().addingTimeInterval(-10500), completedAt: Date().addingTimeInterval(-10450), status: .completed),
-                ToolCall(name: "Write", input: "src/styles/dark-theme.css", output: "Created dark theme styles", startedAt: Date().addingTimeInterval(-10000), completedAt: Date().addingTimeInterval(-9950), status: .completed)
+                ToolCall(name: "Read", input: "src/settings/Settings.tsx", output: "// Settings component", startedAt: now.addingTimeInterval(-10780), completedAt: now.addingTimeInterval(-10775), status: .completed),
+                ToolCall(name: "Edit", input: "src/settings/Settings.tsx", output: "Added theme toggle", startedAt: now.addingTimeInterval(-10500), completedAt: now.addingTimeInterval(-10450), status: .completed),
+                ToolCall(name: "Write", input: "src/styles/dark-theme.css", output: "Created dark theme styles", startedAt: now.addingTimeInterval(-10000), completedAt: now.addingTimeInterval(-9950), status: .completed)
             ],
             metrics: SessionMetrics(totalTokens: 28450, inputTokens: 12300, outputTokens: 16150, toolCallCount: 8, errorCount: 0, apiCalls: 12)
         )
@@ -724,51 +803,74 @@ final class SessionStore {
             name: "Database migration failed",
             status: .failed,
             agentType: .codex,
-            startedAt: Date().addingTimeInterval(-1800),
-            endedAt: Date().addingTimeInterval(-1200),
+            startedAt: now.addingTimeInterval(-1800),
+            endedAt: now.addingTimeInterval(-1200),
             messages: [
-                Message(role: .user, content: "Run the database migration for the new user schema", timestamp: Date().addingTimeInterval(-1800)),
-                Message(role: .assistant, content: "I'll execute the database migration. Let me first check the migration files.", timestamp: Date().addingTimeInterval(-1790)),
-                Message(role: .system, content: "Error: Migration failed - Foreign key constraint violation on users table", timestamp: Date().addingTimeInterval(-1200))
+                Message(role: .user, content: "Run the database migration for the new user schema", timestamp: now.addingTimeInterval(-1800)),
+                Message(role: .assistant, content: "I'll execute the database migration. Let me first check the migration files.", timestamp: now.addingTimeInterval(-1790)),
+                Message(role: .system, content: "Error: Migration failed - Foreign key constraint violation on users table", timestamp: now.addingTimeInterval(-1200))
             ],
             toolCalls: [
-                ToolCall(name: "Bash", input: "npm run migrate", output: nil, startedAt: Date().addingTimeInterval(-1750), completedAt: Date().addingTimeInterval(-1200), status: .failed, error: "Foreign key constraint violation")
+                ToolCall(name: "Bash", input: "npm run migrate", output: nil, startedAt: now.addingTimeInterval(-1750), completedAt: now.addingTimeInterval(-1200), status: .failed, error: "Foreign key constraint violation")
             ],
             metrics: SessionMetrics(totalTokens: 5200, inputTokens: 2100, outputTokens: 3100, toolCallCount: 1, errorCount: 1, apiCalls: 3)
         )
 
-        // Claude Code session - waiting
+        // Claude Code session - running
         let session5 = Session(
             name: "Code review PR #142",
-            status: .waiting,
+            status: .running,
             agentType: .claudeCode,
-            startedAt: Date().addingTimeInterval(-300),
+            startedAt: now.addingTimeInterval(-300),
             messages: [
-                Message(role: .user, content: "Review PR #142 and provide feedback", timestamp: Date().addingTimeInterval(-300))
+                Message(role: .user, content: "Review PR #142 and provide feedback", timestamp: now.addingTimeInterval(-300))
             ],
             toolCalls: [],
             metrics: SessionMetrics(totalTokens: 0, inputTokens: 0, outputTokens: 0, toolCallCount: 0, errorCount: 0, apiCalls: 0)
         )
 
-        // Codex session - waiting (will spawn when terminal view loads)
+        // Codex session - running
         let session6 = Session(
             name: "Refactor API endpoints",
-            status: .waiting,
+            status: .running,
             agentType: .codex,
-            startedAt: Date().addingTimeInterval(-900),
+            startedAt: now.addingTimeInterval(-900),
             messages: [
-                Message(role: .user, content: "Refactor the REST API endpoints to follow OpenAPI 3.0 spec", timestamp: Date().addingTimeInterval(-900)),
-                Message(role: .assistant, content: "I'll refactor the API endpoints to comply with OpenAPI 3.0 specification. Starting with route analysis.", timestamp: Date().addingTimeInterval(-890))
+                Message(role: .user, content: "Refactor the REST API endpoints to follow OpenAPI 3.0 spec", timestamp: now.addingTimeInterval(-900)),
+                Message(role: .assistant, content: "I'll refactor the API endpoints to comply with OpenAPI 3.0 specification. Starting with route analysis.", timestamp: now.addingTimeInterval(-890))
             ],
             toolCalls: [
-                ToolCall(name: "Glob", input: "src/routes/**/*.ts", output: "Found 12 route files", startedAt: Date().addingTimeInterval(-880), completedAt: Date().addingTimeInterval(-875), status: .completed),
-                ToolCall(name: "Read", input: "src/routes/users.ts", startedAt: Date().addingTimeInterval(-870), status: .running)
+                ToolCall(name: "Glob", input: "src/routes/**/*.ts", output: "Found 12 route files", startedAt: now.addingTimeInterval(-880), completedAt: now.addingTimeInterval(-875), status: .completed),
+                ToolCall(name: "Read", input: "src/routes/users.ts", startedAt: now.addingTimeInterval(-870), status: .running)
             ],
             metrics: SessionMetrics(totalTokens: 8500, inputTokens: 4200, outputTokens: 4300, toolCallCount: 2, errorCount: 0, apiCalls: 4)
         )
 
-        sessions = [session1, session2, session3, session4, session5, session6]
+        var baseSessions = [session1, session2, session3, session4, session5, session6]
+
+        if let sessionCount, sessionCount > baseSessions.count {
+            let extraCount = sessionCount - baseSessions.count
+            for index in 0..<extraCount {
+                let sequence = baseSessions.count + index + 1
+                let startedAt = now.addingTimeInterval(-Double(12000 + (index * 60)))
+                let endedAt = now.addingTimeInterval(-Double(9000 + (index * 60)))
+                let extra = Session(
+                    name: "Mock Session \(sequence)",
+                    status: .completed,
+                    agentType: .custom,
+                    startedAt: startedAt,
+                    endedAt: endedAt,
+                    messages: [],
+                    toolCalls: [],
+                    metrics: SessionMetrics(totalTokens: 1200, inputTokens: 600, outputTokens: 600, toolCallCount: 1, errorCount: 0, apiCalls: 1)
+                )
+                baseSessions.append(extra)
+            }
+        }
+
+        sessions = baseSessions
         selectedSessionId = session1.id
+        invalidateCache()
     }
 
     private func mergeLoadedSession(current: Session, loaded: Session) -> Session {

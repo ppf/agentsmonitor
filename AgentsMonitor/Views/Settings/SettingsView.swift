@@ -211,8 +211,8 @@ struct ConnectionSettingsView: View {
 
                     if isConnecting {
                         ProgressView()
+                            .controlSize(.mini)
                             .frame(width: 16, height: 16)
-                            .scaleEffect(0.6)
                     }
                 }
 

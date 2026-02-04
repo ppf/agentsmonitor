@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftUI
 
 struct TerminalSettingsView: View {
     @AppStorage("terminalTheme") private var terminalTheme: String = "auto"
