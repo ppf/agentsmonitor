@@ -28,6 +28,18 @@ final class SessionStoreTests: XCTestCase {
         try await super.tearDown()
     }
 
+    private func assertSorted(
+        _ sessions: [Session],
+        using comparator: (Session, Session) -> Bool,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        guard sessions.count >= 2 else { return }
+        for i in 0..<(sessions.count - 1) {
+            XCTAssertTrue(comparator(sessions[i], sessions[i + 1]), file: file, line: line)
+        }
+    }
+
     // MARK: - Session Creation Tests
 
     func testCreateNewSession() async throws {
@@ -222,21 +234,21 @@ final class SessionStoreTests: XCTestCase {
     }
 
     func testFilterByStatus() async throws {
-        // Given - mock data includes running sessions
-        let runningCount = store.runningSessions.count
-        XCTAssertGreaterThan(runningCount, 0, "Mock data should have running sessions")
+        // Given - mock data includes waiting sessions (sessions start as waiting before spawning)
+        let waitingCount = store.waitingSessions.count
+        XCTAssertGreaterThan(waitingCount, 0, "Mock data should have waiting sessions")
 
         // When
         let (active, other) = store.filteredSessions(
             searchText: "",
-            status: .running,
+            status: .waiting,
             sortOrder: .newest
         )
 
         // Then
         let allFiltered = active + other
-        XCTAssertEqual(allFiltered.count, runningCount)
-        XCTAssertTrue(allFiltered.allSatisfy { $0.status == .running })
+        XCTAssertEqual(allFiltered.count, waitingCount)
+        XCTAssertTrue(allFiltered.allSatisfy { $0.status == .waiting })
     }
 
     func testFilterPartitionsActiveAndOther() async throws {
@@ -261,11 +273,8 @@ final class SessionStoreTests: XCTestCase {
         )
 
         // Then
-        let allFiltered = active + other
-        guard allFiltered.count >= 2 else { return }
-        for i in 0..<(allFiltered.count - 1) {
-            XCTAssertGreaterThanOrEqual(allFiltered[i].startedAt, allFiltered[i + 1].startedAt)
-        }
+        assertSorted(active, using: { $0.startedAt >= $1.startedAt })
+        assertSorted(other, using: { $0.startedAt >= $1.startedAt })
     }
 
     func testSortByOldest() async throws {
@@ -277,11 +286,8 @@ final class SessionStoreTests: XCTestCase {
         )
 
         // Then
-        let allFiltered = active + other
-        guard allFiltered.count >= 2 else { return }
-        for i in 0..<(allFiltered.count - 1) {
-            XCTAssertLessThanOrEqual(allFiltered[i].startedAt, allFiltered[i + 1].startedAt)
-        }
+        assertSorted(active, using: { $0.startedAt <= $1.startedAt })
+        assertSorted(other, using: { $0.startedAt <= $1.startedAt })
     }
 
     func testSortByName() async throws {
@@ -293,11 +299,8 @@ final class SessionStoreTests: XCTestCase {
         )
 
         // Then
-        let allFiltered = active + other
-        guard allFiltered.count >= 2 else { return }
-        for i in 0..<(allFiltered.count - 1) {
-            XCTAssertLessThanOrEqual(allFiltered[i].name, allFiltered[i + 1].name)
-        }
+        assertSorted(active, using: { $0.name <= $1.name })
+        assertSorted(other, using: { $0.name <= $1.name })
     }
 
     func testFilterCaching() async throws {
@@ -746,8 +749,7 @@ final class SessionMetricsTests: XCTestCase {
         let metrics = SessionMetrics(totalTokens: 1234567)
         let formatted = metrics.formattedTokens
 
-        // Should be formatted with separators
-        XCTAssertTrue(formatted.contains(",") || formatted.count >= 7)
+        XCTAssertEqual(formatted, "1.2M")
     }
 
     func testMetricsEquality() {

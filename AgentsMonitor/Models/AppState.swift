@@ -4,7 +4,7 @@ import SwiftUI
 @Observable
 final class AppState {
     var isSidebarVisible: Bool = true
-    var selectedDetailTab: DetailTab = .conversation
+    var selectedDetailTab: DetailTab = .terminal
     var searchText: String = ""
     var filterStatus: SessionStatus? = nil
     var sortOrder: SortOrder = .newest
@@ -14,13 +14,13 @@ final class AppState {
     var compactMode: Bool = false
 
     enum DetailTab: String, CaseIterable {
-        case conversation = "Conversation"
+        case terminal = "Terminal"
         case toolCalls = "Tool Calls"
         case metrics = "Metrics"
 
         var icon: String {
             switch self {
-            case .conversation: return "bubble.left.and.bubble.right"
+            case .terminal: return "terminal"
             case .toolCalls: return "wrench.and.screwdriver"
             case .metrics: return "chart.bar"
             }

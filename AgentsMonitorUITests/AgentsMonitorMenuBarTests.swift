@@ -1,0 +1,117 @@
+import AppKit
+import XCTest
+
+final class AgentsMonitorMenuBarTests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        terminateRunningAppIfNeeded()
+    }
+
+    func testMenuBarExtraContents() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--status-item"]
+        app.launchEnvironment["AGENTS_MONITOR_USE_STATUS_ITEM"] = "1"
+        app.launch()
+
+        var statusItem = app.menuBars.statusItems["menuBar.statusItem"]
+        if !statusItem.waitForExistence(timeout: 2) {
+            statusItem = app.menuBars.statusItems["Agents Monitor"]
+        }
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 10))
+        statusItem.click()
+
+        let headerTitle = app.staticTexts["menuBar.header.title"]
+        let headerTitleLabel = app.staticTexts["Agents Monitor"]
+        XCTAssertTrue(
+            headerTitle.waitForExistence(timeout: 5) || headerTitleLabel.waitForExistence(timeout: 5)
+        )
+        if headerTitle.exists, !headerTitle.label.isEmpty {
+            XCTAssertEqual(headerTitle.label, "Agents Monitor")
+        } else {
+            XCTAssertTrue(headerTitleLabel.exists)
+        }
+
+        let headerActive = app.staticTexts["menuBar.header.activeCount"]
+        let headerActiveLabel = app.staticTexts["3 active"]
+        XCTAssertTrue(
+            headerActive.waitForExistence(timeout: 2) || headerActiveLabel.waitForExistence(timeout: 2)
+        )
+        if headerActive.exists, !headerActive.label.isEmpty {
+            XCTAssertEqual(headerActive.label, "3 active")
+        } else {
+            XCTAssertTrue(headerActiveLabel.exists)
+        }
+
+        let activeSection = app.staticTexts["menuBar.section.active"]
+        let activeSectionLabel = app.staticTexts["ACTIVE SESSIONS"]
+        XCTAssertTrue(
+            activeSection.waitForExistence(timeout: 2) || activeSectionLabel.waitForExistence(timeout: 2)
+        )
+
+        let sessionNames = app.staticTexts.matching(identifier: "menuBar.session.name")
+        let sessionDurations = app.staticTexts.matching(identifier: "menuBar.session.duration")
+        let sessionRows = app.otherElements.matching(identifier: "menuBar.sessionRow")
+        XCTAssertTrue(sessionRows.count > 0 || sessionNames.count > 0)
+        XCTAssertTrue(sessionNames.count > 0)
+        XCTAssertTrue(sessionDurations.count > 0 || sessionNames.count > 0)
+
+        let newSessionButton = app.buttons["menuBar.action.newSession"]
+        XCTAssertTrue(newSessionButton.exists)
+        newSessionButton.click()
+
+        if headerActive.exists, !headerActive.label.isEmpty {
+            let activeCountPredicate = NSPredicate(format: "label == %@", "4 active")
+            expectation(for: activeCountPredicate, evaluatedWith: headerActive)
+            waitForExpectations(timeout: 5)
+        } else {
+            XCTAssertTrue(app.staticTexts["4 active"].waitForExistence(timeout: 5))
+        }
+
+        XCTAssertTrue(app.buttons["menuBar.action.openWindow"].exists)
+        XCTAssertTrue(app.buttons["menuBar.action.refresh"].exists)
+        XCTAssertTrue(app.buttons["menuBar.action.settings"].exists)
+        let quitButton = app.buttons["menuBar.action.quit"]
+        XCTAssertTrue(quitButton.exists)
+        quitButton.click()
+        _ = app.wait(for: .notRunning, timeout: 5)
+    }
+
+    private func terminateRunningAppIfNeeded() {
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+        guard !runningApps.isEmpty else { return }
+
+        for app in runningApps {
+            _ = app.terminate()
+        }
+
+        waitForTermination(timeout: 2)
+
+        let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+        if !stillRunning.isEmpty {
+            for app in stillRunning {
+                app.forceTerminate()
+            }
+            waitForTermination(timeout: 2)
+        }
+
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app").isEmpty {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            process.arguments = ["-x", "AgentsMonitor"]
+            try? process.run()
+            process.waitUntilExit()
+            waitForTermination(timeout: 2)
+        }
+    }
+
+    private func waitForTermination(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+            if stillRunning.isEmpty || stillRunning.allSatisfy({ $0.isTerminated }) {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+    }
+}

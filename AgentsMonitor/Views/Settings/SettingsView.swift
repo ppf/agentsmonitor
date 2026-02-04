@@ -1,5 +1,7 @@
 import SwiftUI
 
+import SwiftUI
+
 struct SettingsView: View {
     var body: some View {
         TabView {
@@ -13,6 +15,11 @@ struct SettingsView: View {
                     Label("Appearance", systemImage: "paintbrush")
                 }
 
+            TerminalSettingsView()
+                .tabItem {
+                    Label("Terminal", systemImage: "terminal")
+                }
+
             ConnectionSettingsView()
                 .tabItem {
                     Label("Connection", systemImage: "network")
@@ -23,7 +30,7 @@ struct SettingsView: View {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
     }
 }
 
@@ -204,7 +211,8 @@ struct ConnectionSettingsView: View {
 
                     if isConnecting {
                         ProgressView()
-                            .scaleEffect(0.6)
+                            .controlSize(.mini)
+                            .frame(width: 16, height: 16)
                     }
                 }
 
@@ -212,6 +220,12 @@ struct ConnectionSettingsView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
+                }
+            }
+
+            Section("Agent Binaries") {
+                ForEach(AgentType.allCases.filter { $0.isTerminalBased }, id: \.self) { agentType in
+                    AgentBinaryOverrideRow(agentType: agentType)
                 }
             }
 
@@ -241,6 +255,232 @@ struct ConnectionSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+}
+
+private struct AgentBinaryOverrideRow: View {
+    let agentType: AgentType
+    @AppStorage private var overridePath: String
+    @State private var browseError: String?
+    @State private var didSeedDefault: Bool = false
+
+    init(agentType: AgentType) {
+        self.agentType = agentType
+        _overridePath = AppStorage(wrappedValue: "", "agentExecutableOverride.\(agentType.storageKey)")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(agentType.displayName)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Resolved: \(resolvedPath)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Text("Detected: \(detectedPath)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if let suggested = agentType.suggestedDefaultPath {
+                    Text("Suggested: \(suggested)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            HStack {
+                TextField("Override path (optional)", text: $overridePath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                Button("Browse...") {
+                    browseForExecutable()
+                }
+                Button("Grant Access") {
+                    grantAccessForSuggested()
+                }
+                .disabled(!suggestedExecutableExists)
+                Button("Use Suggested") {
+                    if let suggested = agentType.suggestedDefaultPath {
+                        overridePath = suggested
+                        clearBookmark()
+                    }
+                }
+                .disabled(agentType.suggestedDefaultPath == nil)
+                Button("Use Detected") {
+                    overridePath = agentType.detectedExecutablePath() ?? ""
+                    clearBookmark()
+                }
+                .disabled(agentType.detectedExecutablePath() == nil)
+                Button("Clear") {
+                    overridePath = ""
+                    clearBookmark()
+                }
+                .disabled(overridePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if let browseError {
+                Text(browseError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else {
+                switch overrideStatus {
+                case .invalid:
+                    Text("Override path is not executable.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                case .needsPermission:
+                    Text("Permission required — click Grant Access.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .valid:
+                    Text(hasBookmark ? "Security access granted via bookmark." : "Override path is accessible.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .none:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .onAppear {
+            seedDefaultIfNeeded()
+        }
+    }
+
+    private var resolvedPath: String {
+        let trimmed = overridePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+        return agentType.detectedExecutablePath() ?? "Not found"
+    }
+
+    private var detectedPath: String {
+        agentType.detectedExecutablePath() ?? "Not found"
+    }
+
+    private enum OverrideStatus {
+        case none
+        case valid
+        case needsPermission
+        case invalid
+    }
+
+    private var overrideStatus: OverrideStatus {
+        let trimmed = overridePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return .none
+        }
+        if let url = agentType.overrideExecutableURL(),
+           agentType.overrideExecutableBookmarkData != nil,
+           AgentType.isSandboxed {
+            let ok = url.startAccessingSecurityScopedResource()
+            defer {
+                if ok { url.stopAccessingSecurityScopedResource() }
+            }
+            guard ok else { return .needsPermission }
+            return FileManager.default.isExecutableFile(atPath: url.path) ? .valid : .invalid
+        }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory) {
+            return FileManager.default.isExecutableFile(atPath: trimmed) ? .valid : .invalid
+        }
+        return AgentType.isSandboxed ? .needsPermission : .invalid
+    }
+
+    private var hasBookmark: Bool {
+        UserDefaults.standard.data(forKey: bookmarkKey) != nil
+    }
+
+    private var bookmarkKey: String {
+        "agentExecutableBookmark.\(agentType.storageKey)"
+    }
+
+    private var seedKey: String {
+        "agentExecutableOverrideSeeded.\(agentType.storageKey)"
+    }
+
+    private func seedDefaultIfNeeded() {
+        guard !didSeedDefault else { return }
+        didSeedDefault = true
+        if UserDefaults.standard.bool(forKey: seedKey) {
+            return
+        }
+        let trimmed = overridePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty, let suggested = agentType.suggestedDefaultPath {
+            overridePath = suggested
+            UserDefaults.standard.set(true, forKey: seedKey)
+        }
+    }
+
+    private func browseForExecutable() {
+        browseForExecutable(preferredURL: nil)
+    }
+
+    private func browseForExecutable(preferredURL: URL?) {
+        browseError = nil
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the \(agentType.displayName) executable"
+        if let preferredURL {
+            panel.directoryURL = preferredURL.deletingLastPathComponent()
+            panel.nameFieldStringValue = preferredURL.lastPathComponent
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            guard let resolvedURL = resolveExecutableURL(from: url) else {
+                browseError = "Could not resolve the selected file."
+                return
+            }
+            if !FileManager.default.isExecutableFile(atPath: resolvedURL.path) {
+                browseError = "Selected file is not executable."
+                return
+            }
+            do {
+                let data = try resolvedURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+                UserDefaults.standard.set(data, forKey: bookmarkKey)
+                overridePath = resolvedURL.path
+                browseError = nil
+            } catch {
+                browseError = "Failed to save security scope: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func clearBookmark() {
+        UserDefaults.standard.removeObject(forKey: bookmarkKey)
+        browseError = nil
+    }
+
+    private var suggestedExecutableExists: Bool {
+        guard let path = agentType.suggestedDefaultPath else { return false }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    private func grantAccessForSuggested() {
+        guard let path = agentType.suggestedDefaultPath else {
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        browseForExecutable(preferredURL: url)
+    }
+
+    private func resolveExecutableURL(from url: URL) -> URL? {
+        let standardized = url.standardizedFileURL
+        if let values = try? standardized.resourceValues(forKeys: [.isAliasFileKey]),
+           values.isAliasFile == true {
+            return (try? URL(
+                resolvingAliasFileAt: standardized,
+                options: [.withoutUI, .withoutMounting]
+            ))?.standardizedFileURL
+        }
+        return standardized
     }
 }
 

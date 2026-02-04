@@ -1,5 +1,7 @@
 import SwiftUI
 
+import SwiftUI
+
 struct ToolCallsView: View {
     let toolCalls: [ToolCall]
     @State private var selectedToolCall: ToolCall?
@@ -16,30 +18,52 @@ struct ToolCallsView: View {
     }
 
     var body: some View {
-        HSplitView {
-            ToolCallListView(
-                toolCalls: filteredToolCalls,
-                selectedToolCall: $selectedToolCall
-            )
-            .frame(minWidth: 300)
-
-            if let toolCall = selectedToolCall {
-                ToolCallDetailView(toolCall: toolCall)
-                    .frame(minWidth: 400)
-            } else {
-                VStack {
-                    Image(systemName: "wrench.and.screwdriver")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text("Select a tool call to view details")
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            // Add a custom search field instead of .searchable() to avoid toolbar conflicts
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Filter tool calls...", text: $filterText)
+                    .textFieldStyle(.plain)
+                if !filterText.isEmpty {
+                    Button {
+                        filterText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityLabel("No tool call selected")
+            }
+            .padding(8)
+            .background(Color(nsColor: .controlBackgroundColor))
+            
+            Divider()
+            
+            HSplitView {
+                ToolCallListView(
+                    toolCalls: filteredToolCalls,
+                    selectedToolCall: $selectedToolCall
+                )
+                .frame(minWidth: 300)
+
+                if let toolCall = selectedToolCall {
+                    ToolCallDetailView(toolCall: toolCall)
+                        .frame(minWidth: 400)
+                } else {
+                    VStack {
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Text("Select a tool call to view details")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("No tool call selected")
+                }
             }
         }
-        .searchable(text: $filterText, prompt: "Filter tool calls...")
     }
 }
 
@@ -130,7 +154,8 @@ struct StatusPill: View {
         HStack(spacing: 4) {
             if status == .running {
                 ProgressView()
-                    .scaleEffect(0.5)
+                    .controlSize(.mini)
+                    .frame(width: 16, height: 16)
             } else {
                 Image(systemName: status.icon)
             }

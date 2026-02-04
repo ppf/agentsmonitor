@@ -292,8 +292,8 @@ actor AgentService: AgentServiceProtocol {
         case .sessionStarted:
             AppLogger.logSessionCreated(Session(name: "Session", status: .running))
         case .toolCallStarted:
-            if case .toolCall(let name, let input, _) = event.data {
-                let toolCall = ToolCall(name: name, input: input, status: .running)
+            if case .toolCall(let data) = event.data {
+                let toolCall = ToolCall(name: data.name, input: data.input, status: .running)
                 AppLogger.logToolCallStarted(toolCall, sessionId: event.sessionId)
             }
         case .error:

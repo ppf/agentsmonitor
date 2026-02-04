@@ -3,18 +3,17 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(AppState.self) private var appState
+    @State private var showNewSessionSheet = false
 
     var body: some View {
         @Bindable var store = sessionStore
 
-        // Use optimized cached filtering that partitions in a single pass
-        let (activeSessions, otherSessions) = sessionStore.filteredSessions(
-            searchText: appState.searchText,
-            status: appState.filterStatus,
-            sortOrder: appState.sortOrder
-        )
+        // Direct access to sessions for proper SwiftUI observation
+        let allSessions = sessionStore.sessions
+        let activeSessions = allSessions.filter { $0.status == .running || $0.status == .waiting }
+        let otherSessions = allSessions.filter { $0.status != .running && $0.status != .waiting }
 
-        let isEmpty = activeSessions.isEmpty && otherSessions.isEmpty
+        let isEmpty = allSessions.isEmpty
 
         List(selection: $store.selectedSessionId) {
             if !activeSessions.isEmpty {
@@ -41,7 +40,7 @@ struct SessionListView: View {
                 ContentUnavailableView {
                     Label("No Sessions", systemImage: "tray")
                 } description: {
-                    Text("No sessions match your search criteria")
+                    Text("Create a new session to get started")
                 }
             }
         }
@@ -52,6 +51,20 @@ struct SessionListView: View {
             }
         }
         .accessibilityLabel("Sessions list")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showNewSessionSheet = true
+                } label: {
+                    Label("New Session", systemImage: "plus")
+                }
+                .help("Create a new agent session")
+                .keyboardShortcut("n", modifiers: .command)
+            }
+        }
+        .sheet(isPresented: $showNewSessionSheet) {
+            NewSessionSheet()
+        }
     }
 }
 
@@ -83,7 +96,8 @@ struct SessionRowView: View {
 
             if session.status == .running {
                 ProgressView()
-                    .scaleEffect(0.6)
+                    .controlSize(.mini)
+                    .frame(width: 16, height: 16)
                     .accessibilityLabel("Session in progress")
             }
         }

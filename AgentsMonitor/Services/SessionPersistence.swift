@@ -29,6 +29,45 @@ actor SessionPersistence {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         decoder.dateDecodingStrategy = .iso8601
+
+        migrateLegacySessionsIfNeeded()
+    }
+
+    private func migrateLegacySessionsIfNeeded() {
+        let legacyDirectory = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent("AgentsMonitor")
+            .appendingPathComponent("Sessions")
+
+        guard legacyDirectory.path != sessionsDirectory.path else { return }
+        guard fileManager.fileExists(atPath: legacyDirectory.path) else { return }
+
+        do {
+            let legacyFiles = try fileManager.contentsOfDirectory(
+                at: legacyDirectory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+
+            var migratedCount = 0
+            for file in legacyFiles where file.pathExtension == "json" {
+                let destination = sessionsDirectory.appendingPathComponent(file.lastPathComponent)
+                if !fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.copyItem(at: file, to: destination)
+                    migratedCount += 1
+                }
+            }
+
+            if migratedCount > 0 {
+                AppLogger.logWarning(
+                    "Migrated \(migratedCount) legacy session file(s) into sandbox storage",
+                    context: "SessionPersistence"
+                )
+            }
+        } catch {
+            AppLogger.logPersistenceError(error, context: "migrating legacy sessions")
+        }
     }
 
     // MARK: - Load Sessions
@@ -55,6 +94,69 @@ actor SessionPersistence {
 
         AppLogger.logPersistenceLoaded(count: sessions.count)
         return sessions
+    }
+
+    func loadSessionSummaries() async throws -> [SessionSummary] {
+        let files = try fileManager.contentsOfDirectory(
+            at: sessionsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles
+        )
+
+        let summaries: [SessionSummary] = files
+            .filter { $0.pathExtension == "json" }
+            .compactMap { url -> SessionSummary? in
+                do {
+                    let data = try Data(contentsOf: url)
+                    
+                    // First try to decode as SessionSummary
+                    if let summary = try? decoder.decode(SessionSummary.self, from: data) {
+                        return summary
+                    }
+                    
+                    // If that fails, try to decode as full Session and convert to summary
+                    if let session = try? decoder.decode(Session.self, from: data) {
+                        AppLogger.logWarning("Loaded full session as summary for \(url.lastPathComponent)", context: "loadSessionSummaries")
+                        return SessionSummary(
+                            id: session.id,
+                            name: session.name,
+                            status: session.status,
+                            agentType: session.agentType,
+                            startedAt: session.startedAt,
+                            endedAt: session.endedAt,
+                            metrics: session.metrics,
+                            workingDirectory: session.workingDirectory,
+                            processId: session.processId,
+                            errorMessage: session.errorMessage,
+                            isExternalProcess: session.isExternalProcess,
+                            terminalOutput: session.terminalOutput
+                        )
+                    }
+                    
+                    // If both fail, log the error
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: [],
+                            debugDescription: "Could not decode as SessionSummary or Session"
+                        )
+                    )
+                } catch {
+                    AppLogger.logPersistenceError(error, context: "loading session summary from \(url.lastPathComponent)")
+                    return nil
+                }
+            }
+            .sorted { $0.startedAt > $1.startedAt }
+
+        return summaries
+    }
+
+    func loadSession(_ sessionId: UUID) async throws -> Session? {
+        let url = sessionsDirectory.appendingPathComponent("\(sessionId.uuidString).json")
+        guard fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: url)
+        return try decoder.decode(Session.self, from: data)
     }
 
     // MARK: - Save Session
@@ -119,6 +221,8 @@ extension Session: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, status, agentType, startedAt, endedAt
         case messages, toolCalls, metrics
+        case workingDirectory, processId, errorMessage, isExternalProcess
+        case terminalOutput
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +236,12 @@ extension Session: Codable {
         messages = try container.decode([Message].self, forKey: .messages)
         toolCalls = try container.decode([ToolCall].self, forKey: .toolCalls)
         metrics = try container.decode(SessionMetrics.self, forKey: .metrics)
+        workingDirectory = try container.decodeIfPresent(URL.self, forKey: .workingDirectory)
+        processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        isExternalProcess = try container.decodeIfPresent(Bool.self, forKey: .isExternalProcess) ?? false
+        terminalOutput = try container.decodeIfPresent(Data.self, forKey: .terminalOutput)
+        isFullyLoaded = true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -145,6 +255,11 @@ extension Session: Codable {
         try container.encode(messages, forKey: .messages)
         try container.encode(toolCalls, forKey: .toolCalls)
         try container.encode(metrics, forKey: .metrics)
+        try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+        try container.encodeIfPresent(processId, forKey: .processId)
+        try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
+        try container.encode(isExternalProcess, forKey: .isExternalProcess)
+        try container.encodeIfPresent(terminalOutput, forKey: .terminalOutput)
     }
 }
 
@@ -203,5 +318,3 @@ extension ToolCall: Codable {
         try container.encodeIfPresent(error, forKey: .error)
     }
 }
-
-extension SessionMetrics: Codable {}
