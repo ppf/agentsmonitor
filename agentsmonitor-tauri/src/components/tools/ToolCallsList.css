@@ -1,0 +1,125 @@
+.tool-calls-list {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+}
+
+.tool-calls-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.tool-call-item {
+  margin-bottom: var(--spacing-sm);
+  background: var(--color-surface0);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tool-call-item.running {
+  border-color: var(--color-blue);
+}
+
+.tool-call-item.completed {
+  border-color: var(--color-green);
+}
+
+.tool-call-item.failed {
+  border-color: var(--color-red);
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.tool-call-header:hover {
+  background: var(--color-surface1);
+}
+
+.tool-icon {
+  font-size: var(--font-size-md);
+}
+
+.tool-name {
+  flex: 1;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.tool-status {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.tool-duration {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.tool-time {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.expand-icon {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.tool-call-body {
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-mantle);
+}
+
+.tool-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.tool-section:last-child {
+  margin-bottom: 0;
+}
+
+.tool-section h4 {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-xs);
+}
+
+.tool-section.error h4 {
+  color: var(--color-red);
+}
+
+.tool-content {
+  padding: var(--spacing-sm);
+  background: var(--color-surface0);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tool-content.error {
+  background: rgba(243, 139, 168, 0.1);
+  color: var(--color-red);
+}

@@ -51,6 +51,7 @@ final class SessionStore {
     private var isRunningTests: Bool {
         environment.isTesting
     }
+    private let lastWorkingDirectoryKey = "lastWorkingDirectory"
 
     // MARK: - Initialization
 
@@ -79,6 +80,34 @@ final class SessionStore {
         }
         set {
             selectedSessionId = newValue?.id
+        }
+    }
+
+    var defaultWorkingDirectory: URL {
+        lastWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    private var lastWorkingDirectory: URL? {
+        get {
+            guard let path = UserDefaults.standard.string(forKey: lastWorkingDirectoryKey) else { return nil }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
+                  isDir.boolValue else {
+                return nil
+            }
+            return URL(fileURLWithPath: path)
+        }
+        set {
+            guard let url = newValue else {
+                UserDefaults.standard.removeObject(forKey: lastWorkingDirectoryKey)
+                return
+            }
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+                  isDir.boolValue else {
+                return
+            }
+            UserDefaults.standard.set(url.path, forKey: lastWorkingDirectoryKey)
         }
     }
 
@@ -167,7 +196,7 @@ final class SessionStore {
 
     func createNewSession() {
         let name = "New Session \(sessions.count + 1)"
-        createSession(agentType: .claudeCode, workingDirectory: FileManager.default.homeDirectoryForCurrentUser, name: name)
+        createSession(agentType: .claudeCode, workingDirectory: defaultWorkingDirectory, name: name)
     }
 
     func createSession(agentType: AgentType, workingDirectory: URL, name: String?) {
@@ -181,6 +210,7 @@ final class SessionStore {
         sessions.insert(session, at: 0)
         selectedSessionId = session.id
         invalidateCache()
+        lastWorkingDirectory = workingDirectory
 
         AppLogger.logSessionCreated(session)
         persistSession(session)
@@ -634,6 +664,9 @@ final class SessionStore {
     private func applySessionSummaries(_ summaries: [SessionSummary]) async {
         let sorted = summaries.sorted { $0.startedAt > $1.startedAt }
         sessions = sorted.map { $0.toSession() }
+        if let recentWorkingDir = sessions.first(where: { $0.workingDirectory != nil })?.workingDirectory {
+            lastWorkingDirectory = recentWorkingDir
+        }
         if let current = selectedSessionId, sessions.contains(where: { $0.id == current }) {
             // Keep current selection
         } else {
@@ -672,13 +705,17 @@ final class SessionStore {
         guard !isRunningTests else { return }
         let detected = await AgentProcessDiscovery().detect()
         let existingPids = Set(sessions.compactMap { $0.processId })
+        let newProcesses = detected.filter { !existingPids.contains($0.pid) }
+        guard !newProcesses.isEmpty else { return }
+
+        let workingDirs = await Self.lookupWorkingDirectories(for: newProcesses.map(\.pid))
         var added = false
 
-        for process in detected where !existingPids.contains(process.pid) {
+        for process in newProcesses {
             let startedAt = Date().addingTimeInterval(-TimeInterval(process.elapsedSeconds))
             
             // Try to get the working directory for the process
-            let workingDir = getWorkingDirectory(for: process.pid)
+            let workingDir = workingDirs[process.pid] ?? nil
             
             let session = Session(
                 name: "\(process.agentType.displayName) - PID \(process.pid)",
@@ -701,7 +738,24 @@ final class SessionStore {
     }
     
     /// Get the working directory for a running process
-    private func getWorkingDirectory(for pid: Int32) -> URL? {
+    private static func lookupWorkingDirectories(for pids: [Int32]) async -> [Int32: URL?] {
+        await withTaskGroup(of: (Int32, URL?).self) { group in
+            for pid in pids {
+                group.addTask {
+                    let directory = await getWorkingDirectory(for: pid)
+                    return (pid, directory)
+                }
+            }
+
+            var results: [Int32: URL?] = [:]
+            for await (pid, directory) in group {
+                results[pid] = directory
+            }
+            return results
+        }
+    }
+
+    private static func getWorkingDirectory(for pid: Int32) async -> URL? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
         process.arguments = ["-a", "-p", "\(pid)", "-d", "cwd", "-Fn"]
@@ -712,24 +766,33 @@ final class SessionStore {
         
         do {
             try process.run()
-            process.waitUntilExit()
-            
-            guard process.terminationStatus == 0 else { return nil }
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-            
-            // Parse lsof output to find the cwd
-            for line in output.split(separator: "\n") {
-                if line.starts(with: "n") {
-                    let path = String(line.dropFirst())
-                    return URL(fileURLWithPath: path)
-                }
-            }
         } catch {
             AppLogger.logError(error, context: "Getting working directory for PID \(pid)")
+            return nil
         }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while process.isRunning {
+            if Date() >= deadline {
+                process.terminate()
+                return nil
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
         
+        // Parse lsof output to find the cwd
+        for line in output.split(separator: "\n") {
+            if line.starts(with: "n") {
+                let path = String(line.dropFirst())
+                return URL(fileURLWithPath: path)
+            }
+        }
+
         return nil
     }
 

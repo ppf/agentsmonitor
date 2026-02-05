@@ -112,6 +112,9 @@ struct NewSessionSheet: View {
             validateExecutable()
         }
         .onAppear {
+            if workingDirectory == FileManager.default.homeDirectoryForCurrentUser {
+                workingDirectory = sessionStore.defaultWorkingDirectory
+            }
             validateExecutable()
         }
     }

@@ -1,0 +1,105 @@
+.session-item {
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+  background: var(--color-surface0);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.session-item:hover {
+  background: var(--color-surface1);
+  border-color: var(--color-border);
+}
+
+.session-item.selected {
+  background: var(--color-surface1);
+  border-color: var(--color-mauve);
+}
+
+.session-item:focus-visible {
+  outline: 2px solid var(--color-mauve);
+  outline-offset: 2px;
+}
+
+.session-item-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.agent-icon {
+  font-size: var(--font-size-lg);
+}
+
+.session-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-badge {
+  font-size: var(--font-size-sm);
+}
+
+.session-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.session-duration {
+  font-family: var(--font-mono);
+}
+
+.session-tokens,
+.session-tools {
+  font-family: var(--font-mono);
+}
+
+.session-item-path {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+  background: var(--color-overlay0);
+}
+
+.action-btn.danger:hover {
+  background: var(--color-red);
+  color: var(--color-crust);
+}

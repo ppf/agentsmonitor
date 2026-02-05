@@ -1,0 +1,46 @@
+.app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+.app-layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Titlebar drag region */
+.app::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-height);
+  -webkit-app-region: drag;
+  z-index: 1000;
+}
+
+/* Exclude interactive elements from drag */
+button,
+input,
+select,
+textarea,
+a,
+.session-item,
+.tab-btn,
+.action-btn {
+  -webkit-app-region: no-drag;
+}
