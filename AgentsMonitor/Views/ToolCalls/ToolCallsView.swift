@@ -1,7 +1,5 @@
 import SwiftUI
 
-import SwiftUI
-
 struct ToolCallsView: View {
     let toolCalls: [ToolCall]
     @State private var selectedToolCall: ToolCall?
@@ -64,6 +62,8 @@ struct ToolCallsView: View {
                 }
             }
         }
+        .accessibilityIdentifier("session.toolCalls.root")
+        .accessibilityValue("\(toolCalls.count)")
     }
 }
 
@@ -77,10 +77,13 @@ struct ToolCallListView: View {
                 .tag(toolCall)
         }
         .listStyle(.inset)
+        .accessibilityIdentifier("session.toolCalls.list")
+        .accessibilityValue("\(toolCalls.count)")
         .overlay {
             if toolCalls.isEmpty {
                 ContentUnavailableView {
                     Label("No Tool Calls", systemImage: "wrench")
+                        .accessibilityIdentifier("session.toolCalls.empty")
                 } description: {
                     Text("This session hasn't made any tool calls yet")
                 }
@@ -118,6 +121,7 @@ struct ToolCallRowView: View {
                 HStack {
                     Text(toolCall.name)
                         .fontWeight(.medium)
+                        .accessibilityIdentifier("session.toolCall.name")
 
                     Spacer()
 
@@ -128,6 +132,7 @@ struct ToolCallRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .accessibilityIdentifier("session.toolCall.input")
 
                 HStack {
                     Text(toolCall.formattedTime)
@@ -141,9 +146,7 @@ struct ToolCallRowView: View {
             }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(toolCall.name), \(toolCall.status.rawValue), input: \(toolCall.input)")
-        .accessibilityHint("Double-tap to view details")
+        .accessibilityIdentifier("session.toolCall.row")
     }
 }
 

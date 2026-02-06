@@ -681,18 +681,21 @@ final class SessionStore {
     @MainActor
     private func loadSessionDetailsIfNeeded(_ sessionId: UUID) async {
         guard let persistence = persistence else { return }
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-        guard !sessions[index].isExternalProcess else { return }
-        guard !sessions[index].isFullyLoaded else { return }
+        guard let initialIndex = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+        guard !sessions[initialIndex].isExternalProcess else { return }
+        guard !sessions[initialIndex].isFullyLoaded else { return }
         guard !loadingSessionIds.contains(sessionId) else { return }
+        let initialSession = sessions[initialIndex]
 
         loadingSessionIds.insert(sessionId)
         defer { loadingSessionIds.remove(sessionId) }
 
         do {
             if let loaded = try await persistence.loadSession(sessionId) {
-                let merged = mergeLoadedSession(current: sessions[index], loaded: loaded)
-                sessions[index] = merged
+                guard let currentIndex = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+                guard !sessions[currentIndex].isExternalProcess else { return }
+                let merged = mergeLoadedSession(initial: initialSession, current: sessions[currentIndex], loaded: loaded)
+                sessions[currentIndex] = merged
                 invalidateCache()
             }
         } catch {
@@ -936,19 +939,75 @@ final class SessionStore {
         invalidateCache()
     }
 
-    private func mergeLoadedSession(current: Session, loaded: Session) -> Session {
+    private func mergeLoadedSession(initial: Session, current: Session, loaded: Session) -> Session {
         var merged = loaded
         merged.name = current.name
         merged.agentType = current.agentType
         merged.startedAt = current.startedAt
-        merged.status = current.status
+
+        // Preserve in-memory runtime state to avoid clobbering newer updates.
+        let statusUpdatedInMemory = current.status != initial.status
+        let processUpdatedInMemory = current.processId != initial.processId
+        let endedAtUpdatedInMemory = current.endedAt != initial.endedAt
+        let errorUpdatedInMemory = current.errorMessage != initial.errorMessage
+
+        merged.status = statusUpdatedInMemory ? current.status : loaded.status
+        merged.messages = mergeMessages(loaded: loaded.messages, current: current.messages)
+        merged.toolCalls = mergeToolCalls(loaded: loaded.toolCalls, current: current.toolCalls)
+        merged.terminalOutput = mergeTerminalOutput(loaded: loaded.terminalOutput, current: current.terminalOutput)
         merged.workingDirectory = current.workingDirectory ?? loaded.workingDirectory
-        merged.processId = current.processId ?? loaded.processId
-        merged.errorMessage = current.errorMessage ?? loaded.errorMessage
-        merged.endedAt = current.endedAt ?? loaded.endedAt
+        merged.processId = processUpdatedInMemory ? current.processId : loaded.processId
+        merged.errorMessage = errorUpdatedInMemory ? current.errorMessage : loaded.errorMessage
+        merged.endedAt = endedAtUpdatedInMemory ? current.endedAt : loaded.endedAt
+        merged.metrics = current.metrics != initial.metrics ? current.metrics : loaded.metrics
         merged.isExternalProcess = current.isExternalProcess || loaded.isExternalProcess
         merged.isFullyLoaded = true
         return merged
+    }
+
+    private func mergeMessages(loaded: [Message], current: [Message]) -> [Message] {
+        var mergedById = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
+        for message in current {
+            mergedById[message.id] = message
+        }
+        return mergedById.values.sorted { lhs, rhs in
+            if lhs.timestamp != rhs.timestamp {
+                return lhs.timestamp < rhs.timestamp
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    private func mergeToolCalls(loaded: [ToolCall], current: [ToolCall]) -> [ToolCall] {
+        var mergedById = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
+        for toolCall in current {
+            mergedById[toolCall.id] = toolCall
+        }
+        return mergedById.values.sorted { lhs, rhs in
+            if lhs.startedAt != rhs.startedAt {
+                return lhs.startedAt < rhs.startedAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    private func mergeTerminalOutput(loaded: Data?, current: Data?) -> Data? {
+        switch (loaded, current) {
+        case (nil, nil):
+            return nil
+        case let (loaded?, nil):
+            return loaded
+        case let (nil, current?):
+            return current
+        case let (loaded?, current?):
+            if current.starts(with: loaded) {
+                return current
+            }
+            if loaded.starts(with: current) {
+                return loaded
+            }
+            return current
+        }
     }
 }
 
@@ -957,6 +1016,53 @@ private struct DetectedAgentProcess: Hashable {
     let agentType: AgentType
     let elapsedSeconds: Int
     let command: String
+}
+
+struct AgentProcessClassifier {
+    static func detectAgentType(comm: String, args: String) -> AgentType? {
+        let commHaystack = comm.lowercased()
+        let fullHaystack = (comm + " " + args).lowercased()
+
+        // Prefer the executable name (`comm`) because args may contain other agent names
+        // (for example `codex --model claude-*`) and would otherwise be misclassified.
+        if matchesAgent(.codex, in: commHaystack) {
+            return .codex
+        }
+        if matchesAgent(.claudeCode, in: commHaystack) {
+            return .claudeCode
+        }
+
+        if matchesAgent(.codex, in: fullHaystack) {
+            return .codex
+        }
+        if matchesAgent(.claudeCode, in: fullHaystack) {
+            return .claudeCode
+        }
+
+        return nil
+    }
+
+    private static func matchesAgent(_ agentType: AgentType, in haystack: String) -> Bool {
+        let base = URL(fileURLWithPath: agentType.executablePath).lastPathComponent.lowercased()
+        let tokens = tokenize(haystack)
+        var aliases = agentType.executableNames.map { $0.lowercased() }
+        if !aliases.contains(base) {
+            aliases.append(base)
+        }
+
+        if tokens.contains(where: { aliases.contains($0) }) {
+            return true
+        }
+        if aliases.contains(where: { haystack.contains("/\($0)") }) {
+            return true
+        }
+        return false
+    }
+
+    private static func tokenize(_ text: String) -> Set<String> {
+        let tokens = text.lowercased().split { !$0.isLetter && !$0.isNumber }
+        return Set(tokens.map(String.init))
+    }
 }
 
 private final class AgentProcessDiscovery {
@@ -1006,37 +1112,11 @@ private final class AgentProcessDiscovery {
         let elapsedSeconds = Int(parts[1]) ?? 0
         let comm = String(parts[2])
         let args = parts.count > 3 ? String(parts[3]) : comm
-        let haystack = (comm + " " + args).lowercased()
 
-        if matchesAgent(.claudeCode, in: haystack) {
-            return DetectedAgentProcess(pid: pid, agentType: .claudeCode, elapsedSeconds: elapsedSeconds, command: args)
-        }
-        if matchesAgent(.codex, in: haystack) {
-            return DetectedAgentProcess(pid: pid, agentType: .codex, elapsedSeconds: elapsedSeconds, command: args)
+        if let agentType = AgentProcessClassifier.detectAgentType(comm: comm, args: args) {
+            return DetectedAgentProcess(pid: pid, agentType: agentType, elapsedSeconds: elapsedSeconds, command: args)
         }
 
         return nil
-    }
-
-    private func matchesAgent(_ agentType: AgentType, in haystack: String) -> Bool {
-        let base = URL(fileURLWithPath: agentType.executablePath).lastPathComponent.lowercased()
-        let tokens = tokenize(haystack)
-        var aliases = agentType.executableNames.map { $0.lowercased() }
-        if !aliases.contains(base) {
-            aliases.append(base)
-        }
-
-        if tokens.contains(where: { aliases.contains($0) }) {
-            return true
-        }
-        if aliases.contains(where: { haystack.contains("/\($0)") }) {
-            return true
-        }
-        return false
-    }
-
-    private func tokenize(_ text: String) -> Set<String> {
-        let tokens = text.lowercased().split { !$0.isLetter && !$0.isNumber }
-        return Set(tokens.map(String.init))
     }
 }

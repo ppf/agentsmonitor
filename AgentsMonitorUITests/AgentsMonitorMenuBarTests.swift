@@ -115,3 +115,204 @@ final class AgentsMonitorMenuBarTests: XCTestCase {
         }
     }
 }
+
+final class AgentsMonitorHistoryLoadingTests: XCTestCase {
+    private struct SeededSession {
+        let sessionName: String
+        let sessionsDirectory: URL
+        let uppercasedURL: URL
+        let canonicalURL: URL
+    }
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        terminateRunningAppIfNeeded()
+    }
+
+    override func tearDownWithError() throws {
+        terminateRunningAppIfNeeded()
+    }
+
+    func testLegacySessionHistoryLoadsFromDiskAndPersistsAfterRestart() throws {
+        let seeded = try seedLegacySession()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: seeded.uppercasedURL)
+            try? FileManager.default.removeItem(at: seeded.canonicalURL)
+            try? FileManager.default.removeItem(at: seeded.sessionsDirectory)
+        }
+
+        let firstLaunch = XCUIApplication()
+        firstLaunch.launchEnvironment["AGENTS_MONITOR_SESSIONS_DIR"] = seeded.sessionsDirectory.path
+        firstLaunch.launch()
+
+        verifySessionAndHistoryVisible(in: firstLaunch, seeded: seeded)
+
+        let filenamesAfterFirstLoad = try FileManager.default.contentsOfDirectory(atPath: seeded.sessionsDirectory.path)
+        XCTAssertTrue(
+            filenamesAfterFirstLoad.contains(seeded.canonicalURL.lastPathComponent),
+            "Expected canonical lowercase session file after load"
+        )
+        XCTAssertFalse(
+            filenamesAfterFirstLoad.contains(seeded.uppercasedURL.lastPathComponent),
+            "Expected uppercase legacy file to be renamed"
+        )
+
+        terminateRunningAppIfNeeded()
+
+        let secondLaunch = XCUIApplication()
+        secondLaunch.launchEnvironment["AGENTS_MONITOR_SESSIONS_DIR"] = seeded.sessionsDirectory.path
+        secondLaunch.launch()
+
+        verifySessionAndHistoryVisible(in: secondLaunch, seeded: seeded)
+
+        let filenamesAfterRestart = try FileManager.default.contentsOfDirectory(atPath: seeded.sessionsDirectory.path)
+        XCTAssertTrue(
+            filenamesAfterRestart.contains(seeded.canonicalURL.lastPathComponent),
+            "Expected canonical lowercase session file after restart"
+        )
+    }
+
+    private func verifySessionAndHistoryVisible(in app: XCUIApplication, seeded: SeededSession) {
+        let sessionByName = app.staticTexts[seeded.sessionName]
+        XCTAssertTrue(sessionByName.waitForExistence(timeout: 20), "Expected seeded session to appear")
+        if sessionByName.isHittable {
+            sessionByName.click()
+        }
+
+        clickToolCallsTab(in: app)
+    }
+
+    private func clickToolCallsTab(in app: XCUIApplication) {
+        let tabByIdentifierButton = app.buttons["session.detail.tab.toolCalls"]
+        if tabByIdentifierButton.waitForExistence(timeout: 2) {
+            tabByIdentifierButton.click()
+            return
+        }
+
+        let tabByIdentifierRadio = app.radioButtons["session.detail.tab.toolCalls"]
+        if tabByIdentifierRadio.waitForExistence(timeout: 2) {
+            tabByIdentifierRadio.click()
+            return
+        }
+
+        let tabByLabelButton = app.buttons["Tool Calls"]
+        if tabByLabelButton.waitForExistence(timeout: 2) {
+            tabByLabelButton.click()
+            return
+        }
+
+        let tabByLabelRadio = app.radioButtons["Tool Calls"]
+        XCTAssertTrue(tabByLabelRadio.waitForExistence(timeout: 5), "Expected Tool Calls detail tab control")
+        tabByLabelRadio.click()
+    }
+
+    private func seedLegacySession() throws -> SeededSession {
+        let sessionID = "0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d"
+        let uppercasedID = sessionID.uppercased()
+        let sessionName = "UI Legacy History Smoke"
+        let toolCallName = "Read"
+        let toolCallInput = "UI_HISTORY_README.md"
+
+        let sessionsDirectory = try isolatedSessionsDirectoryURL()
+        let uppercasedURL = sessionsDirectory.appendingPathComponent("\(uppercasedID).json")
+        let canonicalURL = sessionsDirectory.appendingPathComponent("\(sessionID).json")
+
+        try? FileManager.default.removeItem(at: uppercasedURL)
+        try? FileManager.default.removeItem(at: canonicalURL)
+
+        let payload = """
+        {
+          "id": "\(sessionID)",
+          "name": "\(sessionName)",
+          "status": "running",
+          "agentType": "ClaudeCode",
+          "startedAt": "2099-01-20T15:04:05.678Z",
+          "messages": [
+            {
+              "id": "11111111-1111-4111-8111-111111111111",
+              "role": "User",
+              "content": "ui-history-message",
+              "timestamp": "2099-01-20T15:04:06.001Z"
+            }
+          ],
+          "toolCalls": [
+            {
+              "id": "22222222-2222-4222-8222-222222222222",
+              "name": "\(toolCallName)",
+              "input": "\(toolCallInput)",
+              "startedAt": "2099-01-20T15:04:06.500Z",
+              "completedAt": "2099-01-20T15:04:07.000Z",
+              "status": "Completed"
+            }
+          ],
+          "metrics": {
+            "totalTokens": 100,
+            "inputTokens": 40,
+            "outputTokens": 60,
+            "toolCallCount": 1,
+            "errorCount": 0,
+            "apiCalls": 1
+          },
+          "workingDirectory": "/tmp"
+        }
+        """
+
+        try Data(payload.utf8).write(to: uppercasedURL, options: .atomic)
+
+        return SeededSession(
+            sessionName: sessionName,
+            sessionsDirectory: sessionsDirectory,
+            uppercasedURL: uppercasedURL,
+            canonicalURL: canonicalURL
+        )
+    }
+
+    private func isolatedSessionsDirectoryURL() throws -> URL {
+        let sessionsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentsMonitorUITests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sessionsDirectory,
+            withIntermediateDirectories: true
+        )
+        return sessionsDirectory
+    }
+
+    private func terminateRunningAppIfNeeded() {
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+        guard !runningApps.isEmpty else { return }
+
+        for app in runningApps {
+            _ = app.terminate()
+        }
+
+        waitForTermination(timeout: 2)
+
+        let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+        if !stillRunning.isEmpty {
+            for app in stillRunning {
+                app.forceTerminate()
+            }
+            waitForTermination(timeout: 2)
+        }
+
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app").isEmpty {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            process.arguments = ["-x", "AgentsMonitor"]
+            try? process.run()
+            process.waitUntilExit()
+            waitForTermination(timeout: 2)
+        }
+    }
+
+    private func waitForTermination(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.agentsmonitor.app")
+            if stillRunning.isEmpty || stillRunning.allSatisfy({ $0.isTerminated }) {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+    }
+}

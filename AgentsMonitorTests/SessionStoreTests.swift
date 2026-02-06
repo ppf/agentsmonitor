@@ -771,3 +771,326 @@ final class SessionMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.apiCalls, 0)
     }
 }
+
+final class AgentProcessClassifierTests: XCTestCase {
+    func testDetectAgentTypePrefersCodexExecutableWhenArgsContainClaude() {
+        let detected = AgentProcessClassifier.detectAgentType(
+            comm: "/opt/homebrew/bin/codex",
+            args: "/opt/homebrew/bin/codex --model claude-3-7-sonnet"
+        )
+
+        XCTAssertEqual(detected, .codex)
+    }
+
+    func testDetectAgentTypePrefersClaudeExecutableWhenArgsContainCodex() {
+        let detected = AgentProcessClassifier.detectAgentType(
+            comm: "/Users/storm/.local/bin/claude",
+            args: "/Users/storm/.local/bin/claude --profile codex"
+        )
+
+        XCTAssertEqual(detected, .claudeCode)
+    }
+
+    func testDetectAgentTypeFallsBackToArgsWhenCommIsGeneric() {
+        let detected = AgentProcessClassifier.detectAgentType(
+            comm: "node",
+            args: "/usr/local/bin/node /usr/local/lib/node_modules/codex/bin/codex.js"
+        )
+
+        XCTAssertEqual(detected, .codex)
+    }
+
+    func testDetectAgentTypeReturnsNilForUnrelatedProcess() {
+        let detected = AgentProcessClassifier.detectAgentType(
+            comm: "python3",
+            args: "python3 run_script.py"
+        )
+
+        XCTAssertNil(detected)
+    }
+}
+
+final class LegacySessionDecodingTests: XCTestCase {
+    private struct AgentTypeContainer: Decodable {
+        let agentType: AgentType
+    }
+
+    private struct SessionStatusContainer: Decodable {
+        let status: SessionStatus
+    }
+
+    func testLegacySwiftFixtureMissingOptionalKeysUseDefaults() throws {
+        let session = try decoder().decode(Session.self, from: try fixtureData(named: "legacy_swift_session.json"))
+
+        XCTAssertEqual(session.id, UUID(uuidString: "B1C2D3E4-F5A6-4B7C-8D9E-0F1A2B3C4D5E"))
+        XCTAssertNil(session.endedAt)
+        XCTAssertNil(session.processId)
+        XCTAssertNil(session.errorMessage)
+        XCTAssertFalse(session.isExternalProcess)
+        XCTAssertNil(session.terminalOutput)
+
+        XCTAssertEqual(session.metrics.cacheReadTokens, 0)
+        XCTAssertEqual(session.metrics.cacheWriteTokens, 0)
+
+        guard let firstMessage = session.messages.first else {
+            XCTFail("Expected message from legacy fixture")
+            return
+        }
+        XCTAssertFalse(firstMessage.isStreaming)
+        XCTAssertNil(firstMessage.toolUseId)
+    }
+
+    func testLegacyTauriFixtureDecodesAgentTypeAlias() throws {
+        let session = try decoder().decode(Session.self, from: try fixtureData(named: "legacy_tauri_session.json"))
+        XCTAssertEqual(session.agentType, .claudeCode)
+    }
+
+    func testLegacyTauriFixtureDecodesSessionStatusVariant() throws {
+        let session = try decoder().decode(Session.self, from: try fixtureData(named: "legacy_tauri_session.json"))
+        XCTAssertEqual(session.status, .running)
+    }
+
+    func testLegacyTauriFixtureDecodesFractionalSecondTimestampsViaPersistence() async throws {
+        let sessionId = try XCTUnwrap(UUID(uuidString: "A0B1C2D3-E4F5-4A6B-8C9D-0E1F2A3B4C5D"))
+        let temporaryDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("\(sessionId.uuidString.uppercased()).json")
+        try fixtureData(named: "legacy_tauri_session.json").write(to: fixtureURL, options: .atomic)
+
+        let persistence = try SessionPersistence(sessionsDirectory: temporaryDirectory)
+        let session = try await persistence.loadSession(sessionId)
+        let unwrappedSession = try XCTUnwrap(session)
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let expectedStartedAt = try XCTUnwrap(formatter.date(from: "2026-01-20T15:04:05.678Z"))
+        let expectedMessageTimestamp = try XCTUnwrap(formatter.date(from: "2026-01-20T15:04:06.001Z"))
+        let actualMessageTimestamp = try XCTUnwrap(unwrappedSession.messages.first?.timestamp)
+
+        XCTAssertEqual(unwrappedSession.startedAt.timeIntervalSince1970, expectedStartedAt.timeIntervalSince1970, accuracy: 0.000_1)
+        XCTAssertEqual(actualMessageTimestamp.timeIntervalSince1970, expectedMessageTimestamp.timeIntervalSince1970, accuracy: 0.000_1)
+    }
+
+    func testAgentTypeAliasDecodingVariants() throws {
+        let cases: [(String, AgentType)] = [
+            ("ClaudeCode", .claudeCode),
+            ("claudeCode", .claudeCode),
+            ("Claude Code", .claudeCode),
+            ("claude_code", .claudeCode),
+            ("claude-code", .claudeCode),
+            ("claude", .claudeCode),
+            ("Codex", .codex),
+            ("codex", .codex),
+            ("openai-codex", .codex),
+            ("Custom Agent", .custom),
+            ("custom", .custom)
+        ]
+
+        for (rawValue, expected) in cases {
+            let data = Data(#"{"agentType":"\#(rawValue)"}"#.utf8)
+            let decoded = try decoder().decode(AgentTypeContainer.self, from: data)
+            XCTAssertEqual(decoded.agentType, expected, "Expected \(rawValue) to decode as \(expected)")
+        }
+    }
+
+    func testSessionStatusVariantDecodingVariants() throws {
+        let cases: [(String, SessionStatus)] = [
+            ("running", .running),
+            ("paused", .paused),
+            ("completed", .completed),
+            ("failed", .failed),
+            ("waiting", .waiting),
+            ("cancelled", .cancelled),
+            ("canceled", .cancelled)
+        ]
+
+        for (rawValue, expected) in cases {
+            let data = Data(#"{"status":"\#(rawValue)"}"#.utf8)
+            let decoded = try decoder().decode(SessionStatusContainer.self, from: data)
+            XCTAssertEqual(decoded.status, expected, "Expected \(rawValue) to decode as \(expected)")
+        }
+    }
+
+    private func fixtureData(named filename: String) throws -> Data {
+        try Data(contentsOf: fixtureURL(named: filename))
+    }
+
+    private func fixtureURL(named filename: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+            .appendingPathComponent(filename)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+        let directory = base.appendingPathComponent("AgentsMonitorTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+}
+
+final class SessionPersistenceLegacyFilenameTests: XCTestCase {
+    func testLoadSessionResolvesUppercaseUUIDAndRenamesToCanonicalLowercaseFilename() async throws {
+        var sessionId = UUID()
+        while sessionId.uuidString == sessionId.uuidString.lowercased() {
+            sessionId = UUID()
+        }
+        let temporaryDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let persistence = try SessionPersistence(sessionsDirectory: temporaryDirectory)
+
+        let now = Date(timeIntervalSince1970: 1_706_000_000)
+        let session = Session(
+            id: sessionId,
+            name: "Legacy uppercase filename",
+            status: .running,
+            agentType: .claudeCode,
+            startedAt: now,
+            messages: [],
+            toolCalls: [],
+            metrics: SessionMetrics()
+        )
+
+        let uppercaseFile = "\(sessionId.uuidString.uppercased()).json"
+        let canonicalFile = "\(sessionId.uuidString.lowercased()).json"
+        let uppercaseURL = temporaryDirectory.appendingPathComponent(uppercaseFile)
+
+        defer {
+            try? FileManager.default.removeItem(at: uppercaseURL)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(session)
+        try data.write(to: uppercaseURL, options: .atomic)
+
+        let loaded = try await persistence.loadSession(sessionId)
+        XCTAssertEqual(loaded?.id, sessionId)
+
+        let filenames = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+        XCTAssertTrue(filenames.contains(canonicalFile), "Expected canonical lowercase UUID filename to exist")
+        XCTAssertFalse(filenames.contains(uppercaseFile), "Expected uppercase legacy filename to be renamed")
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+        let directory = base.appendingPathComponent("AgentsMonitorTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+}
+
+@MainActor
+final class SessionStoreMergeRaceTests: XCTestCase {
+    func testAppendDuringDetailLoadPreservesNewMessagesAfterMerge() async throws {
+        let temporaryDirectory = try makeTemporaryDirectory()
+        let persistence = try SessionPersistence(sessionsDirectory: temporaryDirectory)
+        let sessionId = UUID()
+        // Keep this session newest so SessionStore auto-selects it and triggers detail loading.
+        let referenceDate = Date(timeIntervalSinceNow: 3_600)
+
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let historicalMessages = (0..<15_000).map { index in
+            Message(
+                id: UUID(),
+                role: .assistant,
+                content: "Historical message \(index)",
+                timestamp: referenceDate.addingTimeInterval(Double(index))
+            )
+        }
+
+        let persistedSession = Session(
+            id: sessionId,
+            name: "Merge race session",
+            status: .running,
+            agentType: .claudeCode,
+            startedAt: referenceDate,
+            messages: historicalMessages,
+            toolCalls: [],
+            metrics: SessionMetrics(totalTokens: 1, inputTokens: 1, outputTokens: 0, toolCallCount: 0, errorCount: 0, apiCalls: 1)
+        )
+        try await persistence.saveSession(persistedSession)
+
+        let environment = AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: nil,
+            fixedNow: nil,
+            forceMenuBarExtraVisible: false,
+            useStatusItemPopover: false
+        )
+        let store = SessionStore(agentService: AgentService(), persistence: persistence, environment: environment)
+
+        let didObserveSummaryState = await waitUntil(timeout: 5.0) {
+            guard let session = store.sessions.first(where: { $0.id == sessionId }) else { return false }
+            return session.isFullyLoaded == false
+        }
+        XCTAssertTrue(
+            didObserveSummaryState,
+            "Did not observe summary state before detail load completed; add a deterministic load-delay test hook if this remains flaky."
+        )
+
+        var appendedIds: [UUID] = []
+        let appendDeadline = Date().addingTimeInterval(1.0)
+        while Date() < appendDeadline {
+            guard let session = store.sessions.first(where: { $0.id == sessionId }),
+                  session.isFullyLoaded == false else {
+                break
+            }
+            let message = Message(role: .user, content: "appended-during-load-\(appendedIds.count)", timestamp: Date())
+            store.appendMessage(message, to: sessionId)
+            appendedIds.append(message.id)
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertFalse(
+            appendedIds.isEmpty,
+            "No in-flight append was observed while detail load was running; add a deterministic load-delay test hook if needed."
+        )
+
+        let didFullyLoad = await waitUntil(timeout: 10.0) {
+            store.sessions.first(where: { $0.id == sessionId })?.isFullyLoaded == true
+        }
+        XCTAssertTrue(didFullyLoad, "Session never reached fully loaded state")
+
+        guard let finalSession = store.sessions.first(where: { $0.id == sessionId }) else {
+            XCTFail("Expected merged session")
+            return
+        }
+
+        XCTAssertTrue(
+            finalSession.messages.contains(where: { appendedIds.contains($0.id) }),
+            "At least one appended message should survive merge while load is in flight"
+        )
+        XCTAssertTrue(finalSession.messages.contains(where: { $0.content == "Historical message 0" }))
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return false
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+        let directory = base.appendingPathComponent("AgentsMonitorTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+}
