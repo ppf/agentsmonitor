@@ -8,12 +8,14 @@ struct SessionListView: View {
     var body: some View {
         @Bindable var store = sessionStore
 
-        // Direct access to sessions for proper SwiftUI observation
-        let allSessions = sessionStore.sessions
-        let activeSessions = allSessions.filter { $0.status == .running || $0.status == .waiting }
-        let otherSessions = allSessions.filter { $0.status != .running && $0.status != .waiting }
-
-        let isEmpty = allSessions.isEmpty
+        let filtered = sessionStore.filteredSessions(
+            searchText: appState.searchText,
+            status: appState.filterStatus,
+            sortOrder: appState.sortOrder
+        )
+        let activeSessions = filtered.active
+        let otherSessions = filtered.other
+        let isEmpty = activeSessions.isEmpty && otherSessions.isEmpty
 
         List(selection: $store.selectedSessionId) {
             if !activeSessions.isEmpty {
@@ -84,7 +86,7 @@ struct SessionRowView: View {
                     .accessibilityIdentifier("session.list.name")
 
                 HStack(spacing: 8) {
-                    Label(session.formattedDuration, systemImage: "clock")
+                    Label(session.relativeTimeString, systemImage: "clock")
 
                     if session.metrics.toolCallCount > 0 {
                         Label("\(session.metrics.toolCallCount)", systemImage: "wrench")
@@ -107,7 +109,7 @@ struct SessionRowView: View {
         .contentShape(Rectangle())
         .accessibilityIdentifier("session.list.row")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.name), \(session.status.rawValue), duration \(session.formattedDuration)")
+        .accessibilityLabel("\(session.name), \(session.status.rawValue), \(session.relativeTimeString)")
         .accessibilityHint("Double-tap to view session details")
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) {

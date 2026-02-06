@@ -114,6 +114,14 @@ struct QuickMetricsView: View {
                 icon: "arrow.up.arrow.down"
             )
 
+            MetricItem(
+                value: "\(Int(metrics.contextWindowUsage * 100))%",
+                label: "Context",
+                icon: "gauge.with.dots.needle.33percent",
+                color: metrics.contextWindowUsage > 0.9 ? .red :
+                    (metrics.contextWindowUsage > 0.7 ? .orange : .green)
+            )
+
             if metrics.errorCount > 0 {
                 MetricItem(
                     value: "\(metrics.errorCount)",
@@ -124,7 +132,7 @@ struct QuickMetricsView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(metrics.formattedTokens) tokens, \(metrics.toolCallCount) tool calls, \(metrics.apiCalls) API calls\(metrics.errorCount > 0 ? ", \(metrics.errorCount) errors" : "")")
+        .accessibilityLabel("\(metrics.formattedTokens) tokens, \(metrics.toolCallCount) tool calls, \(metrics.apiCalls) API calls, \(Int(metrics.contextWindowUsage * 100)) percent context\(metrics.errorCount > 0 ? ", \(metrics.errorCount) errors" : "")")
     }
 }
 

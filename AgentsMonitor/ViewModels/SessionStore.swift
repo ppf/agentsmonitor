@@ -237,6 +237,25 @@ final class SessionStore {
         }
     }
 
+    func clearAllSessions() {
+        let activeSessionIds = sessions
+            .filter { $0.status == .running || $0.status == .paused || $0.status == .waiting }
+            .map { $0.id }
+        sessions.removeAll()
+        selectedSessionId = nil
+        invalidateCache()
+        Task { @MainActor [weak self] in
+            for id in activeSessionIds {
+                await self?.cleanupProcessResources(sessionId: id)
+            }
+            do {
+                try await self?.persistence?.clearAllSessions()
+            } catch {
+                AppLogger.logPersistenceError(error, context: "clearing all sessions")
+            }
+        }
+    }
+
     func clearCompletedSessions() {
         let completedIds = sessions.filter { $0.status == .completed }.map { $0.id }
         sessions.removeAll { $0.status == .completed }

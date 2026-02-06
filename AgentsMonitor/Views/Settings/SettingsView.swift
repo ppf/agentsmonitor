@@ -1,7 +1,5 @@
 import SwiftUI
 
-import SwiftUI
-
 struct SettingsView: View {
     var body: some View {
         TabView {
@@ -35,6 +33,7 @@ struct SettingsView: View {
 }
 
 struct GeneralSettingsView: View {
+    @Environment(SessionStore.self) private var sessionStore
     @AppStorage("refreshInterval") private var refreshInterval: Double = 5.0
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra: Bool = true
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
@@ -83,14 +82,7 @@ struct GeneralSettingsView: View {
         .padding()
         .confirmationDialog("Clear Session History?", isPresented: $showingClearConfirmation) {
             Button("Clear All", role: .destructive) {
-                Task {
-                    do {
-                        try await SessionPersistence.shared?.clearAllSessions()
-                    } catch {
-                        clearError = error.localizedDescription
-                        showingError = true
-                    }
-                }
+                sessionStore.clearAllSessions()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -98,7 +90,7 @@ struct GeneralSettingsView: View {
         }
         .fileExporter(
             isPresented: $showingExportPanel,
-            document: AllSessionsDocument(),
+            document: AllSessionsDocument(sessions: sessionStore.sessions),
             contentType: .json,
             defaultFilename: "sessions-export-\(Date().ISO8601Format()).json"
         ) { result in
@@ -538,22 +530,17 @@ import UniformTypeIdentifiers
 struct AllSessionsDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
 
-    init() {}
+    let sessions: [Session]
 
-    init(configuration: ReadConfiguration) throws {
-        // Not used for export-only
-    }
+    init(sessions: [Session]) { self.sessions = sessions }
+
+    init(configuration: ReadConfiguration) throws { sessions = [] }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // This would need access to SessionStore - in production,
-        // this should be handled differently
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-
-        // Export empty array as placeholder - actual implementation
-        // should pass sessions from SessionStore
-        let data = try encoder.encode([String]())
+        let data = try encoder.encode(sessions)
         return FileWrapper(regularFileWithContents: data)
     }
 }

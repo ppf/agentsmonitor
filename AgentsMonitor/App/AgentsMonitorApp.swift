@@ -89,6 +89,7 @@ struct AgentsMonitorApp: App {
 
         Settings {
             SettingsView()
+                .environment(sessionStore)
                 .environment(appState)
                 .environment(\.appEnvironment, appEnvironment)
         }

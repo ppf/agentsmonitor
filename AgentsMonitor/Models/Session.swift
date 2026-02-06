@@ -1,6 +1,5 @@
 import Foundation
 import Darwin
-import Foundation
 
 struct Session: Identifiable, Hashable {
     let id: UUID
@@ -59,10 +58,32 @@ struct Session: Identifiable, Hashable {
     }
 
     func formattedDuration(asOf date: Date) -> String {
+        let interval = duration(asOf: date)
         let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = [.hour, .minute, .second]
         formatter.unitsStyle = .abbreviated
-        return formatter.string(from: duration(asOf: date)) ?? "0s"
+        if interval < 60 {
+            formatter.allowedUnits = [.second]
+        } else {
+            formatter.allowedUnits = [.day, .hour, .minute]
+        }
+        return formatter.string(from: interval) ?? "0s"
+    }
+
+    var relativeTimeString: String {
+        let interval = Date().timeIntervalSince(startedAt)
+        if interval < 60 { return "just now" }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        if interval < 3600 {
+            formatter.allowedUnits = [.minute]
+        } else if interval < 86400 {
+            formatter.allowedUnits = [.hour, .minute]
+        } else {
+            formatter.allowedUnits = [.day, .hour]
+        }
+        guard let formatted = formatter.string(from: interval) else { return "just now" }
+        return "\(formatted) ago"
     }
 
     var duration: TimeInterval {
@@ -636,6 +657,8 @@ private func decodeWorkingDirectory<K: CodingKey>(
 }
 
 struct SessionMetrics: Hashable, Codable {
+    static let defaultContextWindowMax = 200_000
+
     var totalTokens: Int
     var inputTokens: Int
     var outputTokens: Int
@@ -644,6 +667,7 @@ struct SessionMetrics: Hashable, Codable {
     var apiCalls: Int
     var cacheReadTokens: Int
     var cacheWriteTokens: Int
+    var contextWindowMax: Int
 
     init(
         totalTokens: Int = 0,
@@ -653,7 +677,8 @@ struct SessionMetrics: Hashable, Codable {
         errorCount: Int = 0,
         apiCalls: Int = 0,
         cacheReadTokens: Int = 0,
-        cacheWriteTokens: Int = 0
+        cacheWriteTokens: Int = 0,
+        contextWindowMax: Int = defaultContextWindowMax
     ) {
         self.totalTokens = totalTokens
         self.inputTokens = inputTokens
@@ -663,28 +688,49 @@ struct SessionMetrics: Hashable, Codable {
         self.apiCalls = apiCalls
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
+        self.contextWindowMax = contextWindowMax
     }
-    
-    // Custom decoder to handle old JSON files without cache fields
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         totalTokens = try container.decode(Int.self, forKey: .totalTokens)
         inputTokens = try container.decode(Int.self, forKey: .inputTokens)
         outputTokens = try container.decode(Int.self, forKey: .outputTokens)
         toolCallCount = try container.decode(Int.self, forKey: .toolCallCount)
         errorCount = try container.decode(Int.self, forKey: .errorCount)
         apiCalls = try container.decode(Int.self, forKey: .apiCalls)
-        
-        // New fields - use default if missing
         cacheReadTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)) ?? 0
         cacheWriteTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheWriteTokens)) ?? 0
+        contextWindowMax = (try? container.decodeIfPresent(Int.self, forKey: .contextWindowMax)) ?? Self.defaultContextWindowMax
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case totalTokens, inputTokens, outputTokens
         case toolCallCount, errorCount, apiCalls
         case cacheReadTokens, cacheWriteTokens
+        case contextWindowMax
+    }
+
+    var contextWindowUsage: Double {
+        guard contextWindowMax > 0 else { return 0 }
+        return min(max(Double(totalTokens) / Double(contextWindowMax), 0), 1.0)
+    }
+
+    var formattedWindowMax: String {
+        contextWindowMax >= 1_000 ? "\(contextWindowMax / 1_000)K" : "\(contextWindowMax)"
+    }
+
+    var formattedRemaining: String {
+        let remaining = max(contextWindowMax - totalTokens, 0)
+        if remaining >= 1_000 {
+            return String(format: "%.1fK", Double(remaining) / 1_000)
+        }
+        return "\(remaining)"
+    }
+
+    var formattedContextWindow: String {
+        "\(formattedTokens) / \(formattedWindowMax)"
     }
 
     var formattedTokens: String {

@@ -545,6 +545,38 @@ final class SessionStoreSearchTests: XCTestCase {
 
 // MARK: - Model Tests
 
+@MainActor
+final class SessionStoreClearAllTests: XCTestCase {
+
+    var store: SessionStore!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        store = SessionStore(agentService: AgentService(), persistence: nil)
+        try await Task.sleep(nanoseconds: 200_000_000)
+    }
+
+    override func tearDown() async throws {
+        store = nil
+        try await super.tearDown()
+    }
+
+    func testClearAllSessions() async throws {
+        XCTAssertFalse(store.sessions.isEmpty)
+        store.clearAllSessions()
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertNil(store.selectedSessionId)
+    }
+
+    func testClearAllSessionsInvalidatesFilterCache() async throws {
+        let _ = store.filteredSessions(searchText: "", status: nil, sortOrder: .newest)
+        store.clearAllSessions()
+        let result = store.filteredSessions(searchText: "", status: nil, sortOrder: .newest)
+        XCTAssertTrue(result.active.isEmpty)
+        XCTAssertTrue(result.other.isEmpty)
+    }
+}
+
 final class SessionModelTests: XCTestCase {
 
     func testSessionDuration() {
@@ -576,6 +608,43 @@ final class SessionModelTests: XCTestCase {
         // Then
         let formatted = session.formattedDuration
         XCTAssertTrue(formatted.contains("1") && formatted.contains("h"))
+    }
+
+    func testFormattedDurationShowsSecondsUnderOneMinute() {
+        let startDate = Date()
+        let endDate = startDate.addingTimeInterval(45)
+        let session = Session(name: "Test", startedAt: startDate, endedAt: endDate)
+        let formatted = session.formattedDuration
+        XCTAssertTrue(formatted.contains("s"))
+        XCTAssertFalse(formatted.contains("m"))
+    }
+
+    func testFormattedDurationDropsSecondsOverOneMinute() {
+        let startDate = Date()
+        let endDate = startDate.addingTimeInterval(90)
+        let session = Session(name: "Test", startedAt: startDate, endedAt: endDate)
+        let formatted = session.formattedDuration
+        XCTAssertTrue(formatted.contains("m"))
+        XCTAssertFalse(formatted.contains("s"))
+    }
+
+    func testFormattedDurationShowsDays() {
+        let startDate = Date()
+        let endDate = startDate.addingTimeInterval(90_000) // >24h
+        let session = Session(name: "Test", startedAt: startDate, endedAt: endDate)
+        let formatted = session.formattedDuration
+        XCTAssertTrue(formatted.contains("d"))
+    }
+
+    func testRelativeTimeString() {
+        let session = Session(name: "Test", startedAt: Date().addingTimeInterval(-7200))
+        let relative = session.relativeTimeString
+        XCTAssertTrue(relative.contains("ago"))
+    }
+
+    func testRelativeTimeStringJustNow() {
+        let session = Session(name: "Test", startedAt: Date())
+        XCTAssertEqual(session.relativeTimeString, "just now")
     }
 
     func testSessionEquality() {
@@ -769,6 +838,42 @@ final class SessionMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.toolCallCount, 0)
         XCTAssertEqual(metrics.errorCount, 0)
         XCTAssertEqual(metrics.apiCalls, 0)
+    }
+
+    func testContextWindowDefaults() {
+        let metrics = SessionMetrics()
+        XCTAssertEqual(metrics.contextWindowMax, SessionMetrics.defaultContextWindowMax)
+        XCTAssertEqual(metrics.contextWindowUsage, 0)
+    }
+
+    func testContextWindowUsage() {
+        let metrics = SessionMetrics(totalTokens: 100_000, contextWindowMax: 200_000)
+        XCTAssertEqual(metrics.contextWindowUsage, 0.5, accuracy: 0.001)
+    }
+
+    func testContextWindowUsageZeroMax() {
+        let metrics = SessionMetrics(totalTokens: 100, contextWindowMax: 0)
+        XCTAssertEqual(metrics.contextWindowUsage, 0)
+    }
+
+    func testContextWindowUsageClampedToOne() {
+        let metrics = SessionMetrics(totalTokens: 300_000, contextWindowMax: 200_000)
+        XCTAssertEqual(metrics.contextWindowUsage, 1.0)
+    }
+
+    func testFormattedContextWindow() {
+        let metrics = SessionMetrics(totalTokens: 50_000, contextWindowMax: 200_000)
+        XCTAssertEqual(metrics.formattedContextWindow, "50.0K / 200K")
+    }
+
+    func testSessionMetricsDecodesWithoutContextWindowMax() throws {
+        let json = """
+        {"totalTokens":100,"inputTokens":50,"outputTokens":50,"toolCallCount":1,"errorCount":0,"apiCalls":1}
+        """
+        let data = Data(json.utf8)
+        let decoder = JSONDecoder()
+        let metrics = try decoder.decode(SessionMetrics.self, from: data)
+        XCTAssertEqual(metrics.contextWindowMax, SessionMetrics.defaultContextWindowMax)
     }
 }
 
