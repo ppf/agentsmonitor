@@ -48,6 +48,15 @@ final class SessionStore {
     private var securityScopedExecutables: [UUID: URL] = [:]
     private var loadingSessionIds: Set<UUID> = []
     private var startingSessionIds: Set<UUID> = []
+    private var terminalOutputPersistenceTimers: [UUID: Date] = [:]
+
+    /// Maximum terminal output size per session (10 MB).
+    /// When exceeded, the oldest bytes are trimmed to stay within this limit.
+    private static let maxTerminalOutputSize = 10 * 1024 * 1024
+
+    /// Minimum interval between persistence writes triggered by terminal output (500ms).
+    private static let terminalPersistenceThrottleInterval: TimeInterval = 0.5
+
     private var isRunningTests: Bool {
         environment.isTesting
     }
@@ -425,6 +434,7 @@ final class SessionStore {
         sessions[index].status = exitCode == 0 ? .completed : .failed
         sessions[index].endedAt = Date()
         sessions[index].processId = nil
+        sessions[index].exitCode = exitCode
         if exitCode != 0 {
             sessions[index].errorMessage = "Process exited with code \(exitCode)"
             sessions[index].metrics.errorCount += 1
@@ -432,6 +442,7 @@ final class SessionStore {
 
         bridges[sessionId]?.disconnect()
         bridges.removeValue(forKey: sessionId)
+        terminalOutputPersistenceTimers.removeValue(forKey: sessionId)
         Task { await processManager.cleanup(sessionId: sessionId) }
         stopAccessingSecurityScopedResource(sessionId: sessionId)
         stopAccessingExecutable(sessionId: sessionId)
@@ -445,15 +456,25 @@ final class SessionStore {
     @MainActor
     private func handleTerminalOutput(sessionId: UUID, data: Data) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-        
+
         if sessions[index].terminalOutput == nil {
             sessions[index].terminalOutput = Data()
         }
         sessions[index].terminalOutput?.append(data)
-        
-        // Debounce persistence? For now, we'll rely on periodic saves or just save on major events if high frequency is an issue.
-        // But to be safe properly, let's persist.
-        // Optimization: In a real app we might throttle this.
+
+        // Cap terminal output to prevent unbounded memory growth
+        if let size = sessions[index].terminalOutput?.count, size > Self.maxTerminalOutputSize {
+            let excess = size - Self.maxTerminalOutputSize
+            sessions[index].terminalOutput?.removeFirst(excess)
+        }
+
+        // Throttle persistence writes -- terminal I/O can fire 100+ times/sec
+        let now = Date()
+        if let lastWrite = terminalOutputPersistenceTimers[sessionId],
+           now.timeIntervalSince(lastWrite) < Self.terminalPersistenceThrottleInterval {
+            return
+        }
+        terminalOutputPersistenceTimers[sessionId] = now
         persistSession(sessions[index])
     }
 
@@ -576,6 +597,7 @@ final class SessionStore {
         await processManager.terminate(sessionId: sessionId)
         bridges[sessionId]?.disconnect()
         bridges.removeValue(forKey: sessionId)
+        terminalOutputPersistenceTimers.removeValue(forKey: sessionId)
         stopAccessingSecurityScopedResource(sessionId: sessionId)
         stopAccessingExecutable(sessionId: sessionId)
     }

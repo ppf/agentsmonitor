@@ -17,6 +17,7 @@ struct Session: Identifiable, Hashable {
     var isExternalProcess: Bool
     var isFullyLoaded: Bool
     var terminalOutput: Data?
+    var exitCode: Int32?
 
     init(
         id: UUID = UUID(),
@@ -33,7 +34,8 @@ struct Session: Identifiable, Hashable {
         errorMessage: String? = nil,
         isExternalProcess: Bool = false,
         isFullyLoaded: Bool = true,
-        terminalOutput: Data? = nil
+        terminalOutput: Data? = nil,
+        exitCode: Int32? = nil
     ) {
         self.id = id
         self.name = name
@@ -50,6 +52,7 @@ struct Session: Identifiable, Hashable {
         self.isExternalProcess = isExternalProcess
         self.isFullyLoaded = isFullyLoaded
         self.terminalOutput = terminalOutput
+        self.exitCode = exitCode
     }
 
     func duration(asOf date: Date) -> TimeInterval {
@@ -116,7 +119,8 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
     let errorMessage: String?
     let isExternalProcess: Bool
     let terminalOutput: Data?
-    
+    let exitCode: Int32?
+
     // Memberwise initializer
     init(
         id: UUID,
@@ -130,7 +134,8 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
         processId: Int32? = nil,
         errorMessage: String? = nil,
         isExternalProcess: Bool = false,
-        terminalOutput: Data? = nil
+        terminalOutput: Data? = nil,
+        exitCode: Int32? = nil
     ) {
         self.id = id
         self.name = name
@@ -144,35 +149,37 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
         self.errorMessage = errorMessage
         self.isExternalProcess = isExternalProcess
         self.terminalOutput = terminalOutput
+        self.exitCode = exitCode
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, status, agentType, startedAt, endedAt
         case metrics, workingDirectory, processId, errorMessage, isExternalProcess
-        case terminalOutput
+        case terminalOutput, exitCode
         // Ignored keys from full Session
         case messages, toolCalls
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         status = try container.decode(SessionStatus.self, forKey: .status)
         agentType = try container.decode(AgentType.self, forKey: .agentType)
         startedAt = try container.decode(Date.self, forKey: .startedAt)
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
-        
+
         // Try to decode metrics, if it fails use default
         metrics = (try? container.decode(SessionMetrics.self, forKey: .metrics)) ?? SessionMetrics()
-        
+
         workingDirectory = try decodeWorkingDirectory(from: container, forKey: .workingDirectory)
         processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         isExternalProcess = (try? container.decodeIfPresent(Bool.self, forKey: .isExternalProcess)) ?? false
         terminalOutput = try container.decodeIfPresent(Data.self, forKey: .terminalOutput)
-        
+        exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+
         // messages and toolCalls are ignored for summary
     }
 
@@ -192,7 +199,8 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
             errorMessage: errorMessage,
             isExternalProcess: isExternalProcess,
             isFullyLoaded: false,
-            terminalOutput: terminalOutput
+            terminalOutput: terminalOutput,
+            exitCode: exitCode
         )
     }
 }
