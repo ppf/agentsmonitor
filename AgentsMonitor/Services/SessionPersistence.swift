@@ -2,38 +2,160 @@ import Foundation
 
 /// Handles persistent storage of sessions to disk
 actor SessionPersistence {
-    private let fileManager = FileManager.default
+    private let fileManager: FileManager
     private let sessionsDirectory: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    static let shared = try? SessionPersistence()
+    nonisolated static var shared: SessionPersistence? {
+        Shared.instance
+    }
 
-    init() throws {
-        let appSupport = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
+    private enum Shared {
+        static let instance = try? SessionPersistence()
+    }
 
-        let appDirectory = appSupport.appendingPathComponent("AgentsMonitor")
-        sessionsDirectory = appDirectory.appendingPathComponent("Sessions")
+    init(fileManager: FileManager = .default, sessionsDirectory: URL? = nil) throws {
+        self.fileManager = fileManager
+        let overrideDirectory = Self.sessionsDirectoryOverrideFromEnvironment()
+
+        if let sessionsDirectory {
+            self.sessionsDirectory = sessionsDirectory
+        } else if let overrideDirectory {
+            self.sessionsDirectory = overrideDirectory
+        } else {
+            let appSupport = try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+
+            let appDirectory = appSupport.appendingPathComponent("AgentsMonitor")
+            self.sessionsDirectory = appDirectory.appendingPathComponent("Sessions")
+        }
 
         try fileManager.createDirectory(
-            at: sessionsDirectory,
+            at: self.sessionsDirectory,
             withIntermediateDirectories: true,
             attributes: nil
         )
 
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = Self.flexibleISO8601DateDecodingStrategy
 
-        migrateLegacySessionsIfNeeded()
+        // Skip migration when tests intentionally override the sessions directory.
+        if sessionsDirectory == nil && overrideDirectory == nil {
+            Self.migrateLegacySessionsIfNeeded(using: fileManager, sessionsDirectory: self.sessionsDirectory)
+        }
     }
 
-    private func migrateLegacySessionsIfNeeded() {
+    private static func sessionsDirectoryOverrideFromEnvironment() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawPath = env["AGENTS_MONITOR_SESSIONS_DIR"] else { return nil }
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(fileURLWithPath: trimmed, isDirectory: true)
+    }
+
+    private static let flexibleISO8601DateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .custom { decoder in
+        let container = try decoder.singleValueContainer()
+
+        if let timestamp = try? container.decode(Double.self) {
+            return Date(timeIntervalSince1970: timestamp)
+        }
+        if let timestamp = try? container.decode(Int.self) {
+            return Date(timeIntervalSince1970: TimeInterval(timestamp))
+        }
+
+        let value = try container.decode(String.self)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = fractional.date(from: trimmed) {
+            return parsed
+        }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let parsed = plain.date(from: trimmed) {
+            return parsed
+        }
+
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Expected ISO8601 date string with or without fractional seconds."
+        )
+    }
+
+    private func sessionFilename(for sessionId: UUID) -> String {
+        "\(sessionId.uuidString.lowercased()).json"
+    }
+
+    private func sessionFileURL(for sessionId: UUID) -> URL {
+        sessionsDirectory.appendingPathComponent(sessionFilename(for: sessionId))
+    }
+
+    private func matchingSessionFileURLs(for sessionId: UUID) throws -> [URL] {
+        let target = sessionFilename(for: sessionId)
+        let files = try fileManager.contentsOfDirectory(
+            at: sessionsDirectory,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        )
+
+        return files
+            .filter { $0.pathExtension.lowercased() == "json" }
+            .filter { $0.lastPathComponent.lowercased() == target }
+            .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func resolveSessionFileURL(for sessionId: UUID, renameToCanonical: Bool) throws -> URL? {
+        let canonicalName = sessionFilename(for: sessionId)
+        let canonicalURL = sessionsDirectory.appendingPathComponent(canonicalName)
+        let matches = try matchingSessionFileURLs(for: sessionId)
+
+        guard !matches.isEmpty else {
+            return nil
+        }
+
+        if let exactCanonical = matches.first(where: { $0.lastPathComponent == canonicalName }) {
+            return exactCanonical
+        }
+
+        guard let match = matches.first else {
+            return nil
+        }
+
+        guard renameToCanonical else {
+            return match
+        }
+
+        let temporaryURL = sessionsDirectory.appendingPathComponent(".rename-\(UUID().uuidString).json")
+        do {
+            try fileManager.moveItem(at: match, to: temporaryURL)
+            try fileManager.moveItem(at: temporaryURL, to: canonicalURL)
+            return canonicalURL
+        } catch {
+            if fileManager.fileExists(atPath: temporaryURL.path) {
+                try? fileManager.moveItem(at: temporaryURL, to: match)
+            }
+
+            if let existingCanonical = try? matchingSessionFileURLs(for: sessionId).first(where: { $0.lastPathComponent == canonicalName }) {
+                if match.path != existingCanonical.path, fileManager.fileExists(atPath: match.path) {
+                    try? fileManager.removeItem(at: match)
+                }
+                return existingCanonical
+            }
+
+            AppLogger.logPersistenceError(error, context: "canonicalizing session filename \(match.lastPathComponent)")
+            return fileManager.fileExists(atPath: match.path) ? match : nil
+        }
+    }
+
+    private static func migrateLegacySessionsIfNeeded(using fileManager: FileManager, sessionsDirectory: URL) {
         let legacyDirectory = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library")
             .appendingPathComponent("Application Support")
@@ -80,7 +202,7 @@ actor SessionPersistence {
         )
 
         let sessions: [Session] = files
-            .filter { $0.pathExtension == "json" }
+            .filter { $0.pathExtension.lowercased() == "json" }
             .compactMap { url -> Session? in
                 do {
                     let data = try Data(contentsOf: url)
@@ -104,7 +226,7 @@ actor SessionPersistence {
         )
 
         let summaries: [SessionSummary] = files
-            .filter { $0.pathExtension == "json" }
+            .filter { $0.pathExtension.lowercased() == "json" }
             .compactMap { url -> SessionSummary? in
                 do {
                     let data = try Data(contentsOf: url)
@@ -151,8 +273,7 @@ actor SessionPersistence {
     }
 
     func loadSession(_ sessionId: UUID) async throws -> Session? {
-        let url = sessionsDirectory.appendingPathComponent("\(sessionId.uuidString).json")
-        guard fileManager.fileExists(atPath: url.path) else {
+        guard let url = try resolveSessionFileURL(for: sessionId, renameToCanonical: true) else {
             return nil
         }
         let data = try Data(contentsOf: url)
@@ -162,7 +283,8 @@ actor SessionPersistence {
     // MARK: - Save Session
 
     func saveSession(_ session: Session) async throws {
-        let url = sessionsDirectory.appendingPathComponent("\(session.id.uuidString).json")
+        _ = try resolveSessionFileURL(for: session.id, renameToCanonical: true)
+        let url = sessionFileURL(for: session.id)
         let data = try encoder.encode(session)
         try data.write(to: url, options: .atomic)
         AppLogger.logPersistenceSaved(session.id)
@@ -177,8 +299,9 @@ actor SessionPersistence {
     // MARK: - Delete Session
 
     func deleteSession(_ sessionId: UUID) async throws {
-        let url = sessionsDirectory.appendingPathComponent("\(sessionId.uuidString).json")
-        if fileManager.fileExists(atPath: url.path) {
+        _ = try resolveSessionFileURL(for: sessionId, renameToCanonical: true)
+        let matching = try matchingSessionFileURLs(for: sessionId)
+        for url in matching {
             try fileManager.removeItem(at: url)
             AppLogger.logPersistenceDeleted(sessionId)
         }
@@ -193,7 +316,7 @@ actor SessionPersistence {
             options: .skipsHiddenFiles
         )
 
-        for file in files where file.pathExtension == "json" {
+        for file in files where file.pathExtension.lowercased() == "json" {
             try fileManager.removeItem(at: file)
         }
     }
@@ -233,10 +356,10 @@ extension Session: Codable {
         agentType = try container.decode(AgentType.self, forKey: .agentType)
         startedAt = try container.decode(Date.self, forKey: .startedAt)
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
-        messages = try container.decode([Message].self, forKey: .messages)
-        toolCalls = try container.decode([ToolCall].self, forKey: .toolCalls)
-        metrics = try container.decode(SessionMetrics.self, forKey: .metrics)
-        workingDirectory = try container.decodeIfPresent(URL.self, forKey: .workingDirectory)
+        messages = (try? container.decodeIfPresent([Message].self, forKey: .messages)) ?? []
+        toolCalls = (try? container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)) ?? []
+        metrics = (try? container.decodeIfPresent(SessionMetrics.self, forKey: .metrics)) ?? SessionMetrics()
+        workingDirectory = try decodeWorkingDirectory(from: container, forKey: .workingDirectory)
         processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         isExternalProcess = try container.decodeIfPresent(Bool.self, forKey: .isExternalProcess) ?? false
@@ -261,6 +384,24 @@ extension Session: Codable {
         try container.encode(isExternalProcess, forKey: .isExternalProcess)
         try container.encodeIfPresent(terminalOutput, forKey: .terminalOutput)
     }
+}
+
+private func decodeWorkingDirectory<K: CodingKey>(
+    from container: KeyedDecodingContainer<K>,
+    forKey key: K
+) throws -> URL? {
+    if let url = try? container.decodeIfPresent(URL.self, forKey: key) {
+        return url
+    }
+    if let path = try? container.decodeIfPresent(String.self, forKey: key) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+        return URL(fileURLWithPath: trimmed)
+    }
+    return nil
 }
 
 extension Message: Codable {

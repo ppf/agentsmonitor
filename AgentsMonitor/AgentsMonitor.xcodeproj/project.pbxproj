@@ -61,12 +61,6 @@
 
 /* Begin PBXFileReference section */
 		00C61DEC2F33475B003FE5C1 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
-		00C61DED2F334763003FE5C1 /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
-		00C61DEE2F334769003FE5C1 /* SessionMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionMetrics.swift; sourceTree = "<group>"; };
-		00C61DEF2F334772003FE5C1 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		00C61DF02F33477E003FE5C1 /* NewSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSheet.swift; sourceTree = "<group>"; };
-		00C61DF12F33478B003FE5C1 /* MetricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsView.swift; sourceTree = "<group>"; };
-		00C61DF22F334798003FE5C1 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		00C61DF32F3347B7003FE5C1 /* TerminalThemes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemes.swift; sourceTree = "<group>"; };
 		00C61DF42F3347E8003FE5C1 /* AgentProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessManager.swift; sourceTree = "<group>"; };
 		00C61DF52F334835003FE5C1 /* BUILD_FIXES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_FIXES.md; sourceTree = "<group>"; };
@@ -132,12 +126,6 @@
 				AMTG002 /* ../AgentsMonitorUITests */,
 				AMG003 /* Products */,
 				00C61DEC2F33475B003FE5C1 /* AppTheme.swift */,
-				00C61DED2F334763003FE5C1 /* StatusBadge.swift */,
-				00C61DEE2F334769003FE5C1 /* SessionMetrics.swift */,
-				00C61DEF2F334772003FE5C1 /* Models.swift */,
-				00C61DF02F33477E003FE5C1 /* NewSessionSheet.swift */,
-				00C61DF12F33478B003FE5C1 /* MetricsView.swift */,
-				00C61DF22F334798003FE5C1 /* MenuBarView.swift */,
 				00C61DF32F3347B7003FE5C1 /* TerminalThemes.swift */,
 				00C61DF42F3347E8003FE5C1 /* AgentProcessManager.swift */,
 				00C61DF52F334835003FE5C1 /* BUILD_FIXES.md */,
