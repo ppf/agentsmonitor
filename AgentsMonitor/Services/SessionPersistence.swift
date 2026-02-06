@@ -345,7 +345,7 @@ extension Session: Codable {
         case id, name, status, agentType, startedAt, endedAt
         case messages, toolCalls, metrics
         case workingDirectory, processId, errorMessage, isExternalProcess
-        case terminalOutput
+        case terminalOutput, exitCode
     }
 
     init(from decoder: Decoder) throws {
@@ -364,6 +364,7 @@ extension Session: Codable {
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         isExternalProcess = try container.decodeIfPresent(Bool.self, forKey: .isExternalProcess) ?? false
         terminalOutput = try container.decodeIfPresent(Data.self, forKey: .terminalOutput)
+        exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
         isFullyLoaded = true
     }
 
@@ -383,6 +384,7 @@ extension Session: Codable {
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
         try container.encode(isExternalProcess, forKey: .isExternalProcess)
         try container.encodeIfPresent(terminalOutput, forKey: .terminalOutput)
+        try container.encodeIfPresent(exitCode, forKey: .exitCode)
     }
 }
 

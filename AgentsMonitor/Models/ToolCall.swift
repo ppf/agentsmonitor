@@ -56,9 +56,12 @@ struct ToolCall: Identifiable, Hashable {
         case let n where n.contains("edit"): return "pencil.line"
         case let n where n.contains("bash"), let n where n.contains("shell"): return "terminal"
         case let n where n.contains("search"), let n where n.contains("grep"): return "magnifyingglass"
+        case let n where n.contains("glob"): return "folder.badge.gearshape"
         case let n where n.contains("web"), let n where n.contains("fetch"): return "globe"
         case let n where n.contains("git"): return "arrow.triangle.branch"
         case let n where n.contains("task"), let n where n.contains("agent"): return "cpu"
+        case let n where n.contains("notebook"): return "book"
+        case let n where n.contains("todo"): return "checklist"
         default: return "wrench"
         }
     }

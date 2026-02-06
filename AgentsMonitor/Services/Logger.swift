@@ -1,5 +1,4 @@
 import Foundation
-import Foundation
 import os.log
 
 /// Centralized logging for the AgentsMonitor app
@@ -12,6 +11,7 @@ final class AppLogger {
     private static let networkLog = OSLog(subsystem: subsystem, category: "network")
     private static let persistenceLog = OSLog(subsystem: subsystem, category: "persistence")
     private static let errorLog = OSLog(subsystem: subsystem, category: "errors")
+    private static let warningLog = OSLog(subsystem: subsystem, category: "warnings")
     private static let performanceLog = OSLog(subsystem: subsystem, category: "performance")
 
     // MARK: - Session Events
@@ -134,7 +134,7 @@ final class AppLogger {
 
     static func logWarning(_ message: String, context: String) {
         os_log("Warning [%{public}@]: %{public}@",
-               log: errorLog,
+               log: warningLog,
                type: .default,
                context,
                message)
