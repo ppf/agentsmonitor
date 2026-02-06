@@ -146,7 +146,7 @@ struct SessionSummary: Identifiable, Hashable, Decodable {
         // Try to decode metrics, if it fails use default
         metrics = (try? container.decode(SessionMetrics.self, forKey: .metrics)) ?? SessionMetrics()
         
-        workingDirectory = try container.decodeIfPresent(URL.self, forKey: .workingDirectory)
+        workingDirectory = try decodeWorkingDirectory(from: container, forKey: .workingDirectory)
         processId = try container.decodeIfPresent(Int32.self, forKey: .processId)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         isExternalProcess = (try? container.decodeIfPresent(Bool.self, forKey: .isExternalProcess)) ?? false
@@ -204,6 +204,46 @@ enum SessionStatus: String, CaseIterable, Codable {
         case .waiting: return "clock.fill"
         case .cancelled: return "stop.circle.fill"
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        let normalized = Self.normalizedDecodeValue(raw)
+
+        switch normalized {
+        case "running":
+            self = .running
+        case "paused":
+            self = .paused
+        case "completed":
+            self = .completed
+        case "failed":
+            self = .failed
+        case "waiting":
+            self = .waiting
+        case "cancelled", "canceled":
+            self = .cancelled
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid SessionStatus value: \(raw)"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    private static func normalizedDecodeValue(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
     }
 }
 
@@ -528,6 +568,71 @@ enum AgentType: String, CaseIterable, Codable {
         case .custom: return false
         }
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        let normalized = Self.normalizedDecodeValue(raw)
+
+        if let mapped = Self.decodeAliases[normalized] {
+            self = mapped
+            return
+        }
+
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Invalid AgentType value: \(raw)"
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    private static let decodeAliases: [String: AgentType] = [
+        "claudecode": .claudeCode,
+        "claude": .claudeCode,
+        "anthropicclaude": .claudeCode,
+        "claudecli": .claudeCode,
+        "claudecodecli": .claudeCode,
+        "claudecodeagent": .claudeCode,
+        "codex": .codex,
+        "openaicodex": .codex,
+        "openaicodexcli": .codex,
+        "codexcli": .codex,
+        "openaicodexagent": .codex,
+        "custom": .custom,
+        "customagent": .custom,
+        "agent": .custom
+    ]
+
+    private static func normalizedDecodeValue(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+    }
+}
+
+private func decodeWorkingDirectory<K: CodingKey>(
+    from container: KeyedDecodingContainer<K>,
+    forKey key: K
+) throws -> URL? {
+    if let url = try? container.decodeIfPresent(URL.self, forKey: key) {
+        return url
+    }
+    if let path = try? container.decodeIfPresent(String.self, forKey: key) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+        return URL(fileURLWithPath: trimmed)
+    }
+    return nil
 }
 
 struct SessionMetrics: Hashable, Codable {
