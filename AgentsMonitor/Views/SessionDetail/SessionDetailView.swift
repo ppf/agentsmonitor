@@ -18,9 +18,11 @@ struct SessionDetailView: View {
                 ForEach(AppState.DetailTab.allCases, id: \.self) { tab in
                     Label(tab.rawValue, systemImage: tab.icon)
                         .tag(tab)
+                        .accessibilityIdentifier(detailTabIdentifier(for: tab))
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("session.detail.tabPicker")
             .padding(.horizontal)
             .padding(.top, 8)
 
@@ -29,10 +31,13 @@ struct SessionDetailView: View {
                 switch state.selectedDetailTab {
                 case .terminal:
                     TerminalContainerView(session: session)
+                        .accessibilityIdentifier("session.detail.content.terminal")
                 case .toolCalls:
                     ToolCallsView(toolCalls: session.toolCalls)
+                        .accessibilityIdentifier("session.detail.content.toolCalls")
                 case .metrics:
                     MetricsView(metrics: session.metrics, session: session)
+                        .accessibilityIdentifier("session.detail.content.metrics")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -51,6 +56,7 @@ struct SessionHeaderView: View {
                     StatusBadge(status: session.status, size: .large)
                     Text(session.name)
                         .font(.headline)
+                        .accessibilityIdentifier("session.detail.name")
                 }
 
                 HStack(spacing: 16) {
@@ -68,8 +74,20 @@ struct SessionHeaderView: View {
         }
         .padding()
         .background(.bar)
+        .accessibilityIdentifier("session.detail.header")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Session \(session.name), status \(session.status.rawValue), duration \(session.formattedDuration)")
+    }
+}
+
+private func detailTabIdentifier(for tab: AppState.DetailTab) -> String {
+    switch tab {
+    case .terminal:
+        return "session.detail.tab.terminal"
+    case .toolCalls:
+        return "session.detail.tab.toolCalls"
+    case .metrics:
+        return "session.detail.tab.metrics"
     }
 }
 

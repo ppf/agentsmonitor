@@ -35,6 +35,7 @@ struct SessionListView: View {
             }
         }
         .listStyle(.sidebar)
+        .accessibilityIdentifier("session.list")
         .overlay {
             if isEmpty {
                 ContentUnavailableView {
@@ -80,6 +81,7 @@ struct SessionRowView: View {
                 Text(session.name)
                     .fontWeight(.medium)
                     .lineLimit(1)
+                    .accessibilityIdentifier("session.list.name")
 
                 HStack(spacing: 8) {
                     Label(session.formattedDuration, systemImage: "clock")
@@ -103,6 +105,7 @@ struct SessionRowView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("session.list.row")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(session.name), \(session.status.rawValue), duration \(session.formattedDuration)")
         .accessibilityHint("Double-tap to view session details")
