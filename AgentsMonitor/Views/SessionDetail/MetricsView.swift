@@ -4,6 +4,12 @@ struct MetricsView: View {
     let metrics: SessionMetrics
     let session: Session
 
+    private var contextWindowColor: Color {
+        if metrics.contextWindowUsage > 0.9 { return .red }
+        if metrics.contextWindowUsage > 0.7 { return .orange }
+        return .green
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -28,6 +34,37 @@ struct MetricsView: View {
                             MetricRow(label: "Total Tokens", value: metrics.formattedTokens)
                             MetricRow(label: "Input Tokens", value: "\(metrics.inputTokens)")
                             MetricRow(label: "Output Tokens", value: "\(metrics.outputTokens)")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                // Context Window
+                MetricsSectionView(title: "Context Window", icon: "gauge.with.dots.needle.33percent") {
+                    HStack(spacing: 32) {
+                        CircularProgressView(
+                            value: metrics.contextWindowUsage,
+                            total: 1.0,
+                            label: "Usage",
+                            color: contextWindowColor
+                        )
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            MetricRow(label: "Usage", value: metrics.formattedContextWindow)
+                            MetricRow(label: "Remaining", value: metrics.formattedRemaining)
+                            MetricRow(label: "Window Size", value: metrics.formattedWindowMax)
+
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(contextWindowColor.opacity(0.2))
+                                        .frame(height: 8)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(contextWindowColor)
+                                        .frame(width: geometry.size.width * metrics.contextWindowUsage, height: 8)
+                                }
+                            }
+                            .frame(height: 8)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }

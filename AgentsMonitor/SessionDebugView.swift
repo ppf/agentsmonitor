@@ -165,14 +165,8 @@ struct SessionDebugView: View {
     }
     
     private func clearAllSessions() async {
-        guard let persistence = SessionPersistence.shared else { return }
-        
-        do {
-            try await persistence.clearAllSessions()
-            await refreshInfo()
-        } catch {
-            persistenceInfo?.error = "Failed to clear: \(error.localizedDescription)"
-        }
+        sessionStore.clearAllSessions()
+        await refreshInfo()
     }
 }
 
