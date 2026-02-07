@@ -53,10 +53,9 @@ Views (@Environment) → Reactive UI updates
 
 **SessionStore responsibilities:**
 - Session CRUD operations
-- Filtering & caching (performance optimization)
+- Aggregate stats (tokens, cost, runtime, average duration)
 - Message/ToolCall appending
 - Auto-persistence via SessionPersistence actor
-- Commands to AgentService (pause/resume/cancel)
 
 ### Dependency Injection Pattern
 SessionStore uses constructor injection for testability:
@@ -92,49 +91,17 @@ final class SessionStoreTests: XCTestCase {
 ```
 
 ### Test Organization
-- **SessionStoreTests**: 31 tests covering CRUD, filtering, caching, sorting
-- **Model tests**: SessionModelTests, ToolCallModelTests, MessageModelTests, SessionMetricsTests
+- **SessionStoreTests**: CRUD, computed properties, message/toolCall appending
+- **SessionStoreAggregateTests**: Aggregate stats (tokens, cost, runtime, averages)
+- **SessionStoreClearAllTests**: Clear all + aggregate reset verification
+- **SessionStoreMergeRaceTests**: Concurrent append during detail load
+- **Model tests**: SessionModelTests, ToolCallModelTests, MessageModelTests, SessionMetricsTests (incl. cost/modelName)
 - **Pattern**: Create minimal fixtures in tests, verify state changes (not implementation)
-
-### Key Test Patterns
-```swift
-// Verify cache invalidation
-func testFilterCacheInvalidatesOnUpdate() {
-    let _ = sut.filteredSessions()  // Cache first call
-    sut.createSession(agentType: .claudeCode)
-    // Cache should auto-invalidate on mutation
-}
-
-// Verify partitioning (active vs other)
-func testFilterPartitionsActiveAndOther() {
-    let active = sut.activeSessions
-    let other = sut.otherSessions
-    // Verify running/waiting in active, rest in other
-}
-```
 
 ## Performance Optimizations
 
-### Filtered Cache Strategy
-SessionStore maintains a single `FilteredSessionsCache` that invalidates on any data mutation:
-
-```swift
-// Don't re-filter on every access
-private var filteredCache: FilteredSessionsCache?
-
-// Invalidate on mutations
-private func invalidateFilterCache() {
-    filteredCache = nil
-}
-```
-
-**When adding SessionStore methods:** Call `invalidateFilterCache()` after any mutation to `sessions` array.
-
 ### Pagination Support
 SessionStore has pagination built-in (pageSize=50, hasMorePages flag). Currently unused but ready for large datasets.
-
-### AppKit Bridge for Streaming Text
-`StreamingTextViewRepresentable` wraps NSTextView (AppKit) for better streaming performance than SwiftUI Text. This is a macOS-specific optimization based on MACOS_STACK_RESEARCH.md findings.
 
 ## WebSocket Integration
 
@@ -213,13 +180,12 @@ actor SessionPersistence {
 SessionStore automatically persists after mutations:
 
 ```swift
-func createSession(agentType: AgentType) {
+func createNewSession() {
     let session = Session(...)
-    sessions.append(session)
-    invalidateFilterCache()
+    sessions.insert(session, at: 0)
 
     Task {
-        try? await persistence?.save(session)  // Async, doesn't block UI
+        try? await persistence?.saveSession(session)  // Async, doesn't block UI
     }
 }
 ```
@@ -242,15 +208,7 @@ Button { action() } label: {
 }
 ```
 
-**Status indicators:** Always pair color with icon (colorblind safe):
-```swift
-// StatusBadge uses both
-HStack {
-    Image(systemName: iconName)  // Visual indicator
-    Text(status.rawValue)
-}
-.foregroundColor(AppTheme.statusColor(for: status))  // Color reinforcement
-```
+**Status indicators:** Always pair color with icon (colorblind safe).
 
 ## Common Modification Patterns
 
@@ -258,14 +216,12 @@ HStack {
 1. Update `SessionStatus` enum in `Models/Session.swift`
 2. Add computed property in SessionStore (e.g., `var archiveSessions`)
 3. Add color mapping in `AppTheme.statusColors`
-4. Add filter case in `AppState.SessionFilter`
-5. Update `SessionStore.filteredSessions()` switch statement
-6. Add menu item in `Views/SessionList/SessionListView.swift` FilterMenu
+4. Update `MenuBarMainView` to display new status
 
 ### Adding a New AgentType
 1. Update `AgentType` enum with icon, displayName, defaultHost/Port/Path, color
 2. Add preset config in `AgentService.Config` static methods
-3. Update SettingsView connection tab if needed
+3. Update `MenuBarSettingsView` connection section if needed
 4. Add test session to `SessionStore.loadMockData()` if desired
 
 ### Adding a New Tool Call Icon
@@ -336,14 +292,23 @@ func disconnect() async {
 
 When implementing these, the architecture is ready - just wire up the AgentService connection in SessionStore initialization.
 
+## App Architecture
+
+This is a **menu-bar-only** macOS app (no main window, no Dock icon). The entire UI lives in a `MenuBarExtra(.window)` popover.
+
+- `Info.plist` has `LSUIElement = true` (hides from Dock/Cmd-Tab)
+- `AgentsMonitorApp.swift` uses only `MenuBarExtra` scene (no `WindowGroup`)
+- `MenuBarView` is a page router: main ↔ settings
+- `MenuBarMainView`: expandable session rows + usage stats (aggregate tokens, cost, runtime)
+- `MenuBarSettingsView`: inline settings (General, Appearance, Connection)
+
 ## File Navigation Guide
 
-**State management:** `ViewModels/SessionStore.swift` (single source of truth)
+**App entry point:** `App/AgentsMonitorApp.swift` (MenuBarExtra-only, DI setup)
+**State management:** `ViewModels/SessionStore.swift` (single source of truth, aggregate stats)
 **WebSocket logic:** `Services/AgentService.swift` (actor-based, async/await)
 **Persistence:** `Services/SessionPersistence.swift` (actor, Codable extensions)
 **Theme/styling:** `Theme/AppTheme.swift` (all colors, fonts, spacing)
-**Main UI:** `Views/MainWindow/ContentView.swift` (NavigationSplitView root)
-**Session list:** `Views/SessionList/SessionListView.swift` (sidebar)
-**Session detail:** `Views/SessionDetail/SessionDetailView.swift` (tabs: conversation, tools, metrics)
-**Streaming text:** `Components/StreamingTextViewRepresentable.swift` (AppKit bridge)
-**App entry point:** `App/AgentsMonitorApp.swift` (DI setup)
+**Menu bar root:** `Views/MainWindow/MenuBarView.swift` (page router + shared components)
+**Main popover:** `Views/MenuBar/MenuBarMainView.swift` (sessions + usage stats)
+**Inline settings:** `Views/MenuBar/MenuBarSettingsView.swift` (General, Appearance, Connection)

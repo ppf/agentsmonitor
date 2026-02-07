@@ -212,135 +212,6 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedSessionId, targetSession.id)
     }
 
-    // MARK: - Filtering Tests
-
-    func testFilterBySearchText() async throws {
-        // Given - create session with specific name
-        store.createNewSession()
-        var session = store.sessions[0]
-        session.name = "Authentication Bug Fix"
-        store.updateSession(session)
-
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "Authentication",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then
-        let allFiltered = active + other
-        XCTAssertTrue(allFiltered.contains { $0.name.contains("Authentication") })
-    }
-
-    func testFilterByStatus() async throws {
-        // Given - mock data includes waiting sessions (sessions start as waiting before spawning)
-        let waitingCount = store.waitingSessions.count
-        XCTAssertGreaterThan(waitingCount, 0, "Mock data should have waiting sessions")
-
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: .waiting,
-            sortOrder: .newest
-        )
-
-        // Then
-        let allFiltered = active + other
-        XCTAssertEqual(allFiltered.count, waitingCount)
-        XCTAssertTrue(allFiltered.allSatisfy { $0.status == .waiting })
-    }
-
-    func testFilterPartitionsActiveAndOther() async throws {
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then
-        XCTAssertTrue(active.allSatisfy { $0.status == .running || $0.status == .waiting })
-        XCTAssertTrue(other.allSatisfy { $0.status != .running && $0.status != .waiting })
-    }
-
-    func testSortByNewest() async throws {
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then
-        assertSorted(active, using: { $0.startedAt >= $1.startedAt })
-        assertSorted(other, using: { $0.startedAt >= $1.startedAt })
-    }
-
-    func testSortByOldest() async throws {
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .oldest
-        )
-
-        // Then
-        assertSorted(active, using: { $0.startedAt <= $1.startedAt })
-        assertSorted(other, using: { $0.startedAt <= $1.startedAt })
-    }
-
-    func testSortByName() async throws {
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .name
-        )
-
-        // Then
-        assertSorted(active, using: { $0.name <= $1.name })
-        assertSorted(other, using: { $0.name <= $1.name })
-    }
-
-    func testFilterCaching() async throws {
-        // First call
-        let (active1, other1) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Second call with same parameters
-        let (active2, other2) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then - results should be identical (cached)
-        XCTAssertEqual(active1.map(\.id), active2.map(\.id))
-        XCTAssertEqual(other1.map(\.id), other2.map(\.id))
-    }
-
-    func testFilterCacheInvalidatesOnUpdate() async throws {
-        // Given - cache the result
-        let _ = store.filteredSessions(searchText: "", status: nil, sortOrder: .newest)
-
-        // Create a new session which invalidates cache
-        store.createNewSession()
-
-        // When
-        let (active, _) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then - should include the new session
-        XCTAssertTrue(active.contains { $0.status == .waiting })
-    }
-
     // MARK: - Computed Properties Tests
 
     func testRunningSessionsFilter() async throws {
@@ -471,10 +342,10 @@ final class SessionStoreTests: XCTestCase {
     }
 }
 
-// MARK: - Search Tests
+// MARK: - Aggregate Stats Tests
 
 @MainActor
-final class SessionStoreSearchTests: XCTestCase {
+final class SessionStoreAggregateTests: XCTestCase {
 
     var store: SessionStore!
 
@@ -489,57 +360,56 @@ final class SessionStoreSearchTests: XCTestCase {
         try await super.tearDown()
     }
 
-    func testSearchFindsMessageContent() async throws {
-        // Given
-        store.createNewSession()
-        let sessionId = store.sessions[0].id
-        let message = Message(role: .assistant, content: "The unique_search_term is important")
-        store.appendMessage(message, to: sessionId)
-
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "unique_search_term",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then
-        let allFiltered = active + other
-        XCTAssertTrue(allFiltered.contains { $0.id == sessionId })
+    func testAggregateTokensSumsAllSessions() async throws {
+        let expected = store.sessions.reduce(0) { $0 + $1.metrics.totalTokens }
+        XCTAssertEqual(store.aggregateTokens, expected)
+        XCTAssertGreaterThan(store.aggregateTokens, 0)
     }
 
-    func testSearchIsCaseInsensitive() async throws {
-        // Given
-        store.createNewSession()
-        var session = store.sessions[0]
-        session.name = "UPPERCASE_TEST_NAME"
-        store.updateSession(session)
-
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "uppercase_test",
-            status: nil,
-            sortOrder: .newest
-        )
-
-        // Then
-        let allFiltered = active + other
-        XCTAssertTrue(allFiltered.contains { $0.name == "UPPERCASE_TEST_NAME" })
+    func testAggregateCostSumsAllSessions() async throws {
+        let expected = store.sessions.reduce(0.0) { $0 + $1.metrics.cost }
+        XCTAssertEqual(store.aggregateCost, expected, accuracy: 0.0001)
+        XCTAssertGreaterThan(store.aggregateCost, 0)
     }
 
-    func testEmptySearchReturnsAll() async throws {
-        // Given
-        let totalCount = store.sessions.count
+    func testTotalRuntimeSumsAllDurations() async throws {
+        XCTAssertGreaterThan(store.totalRuntime, 0)
+    }
 
-        // When
-        let (active, other) = store.filteredSessions(
-            searchText: "",
-            status: nil,
-            sortOrder: .newest
-        )
+    func testAverageDurationComputesCorrectly() async throws {
+        let sessionCount = store.sessions.count
+        XCTAssertGreaterThan(sessionCount, 0)
+        let expectedAvg = store.totalRuntime / Double(sessionCount)
+        XCTAssertEqual(store.averageDuration, expectedAvg, accuracy: 0.01)
+    }
 
-        // Then
-        XCTAssertEqual(active.count + other.count, totalCount)
+    func testFormattedAggregateTokensReturnsNonEmpty() async throws {
+        XCTAssertFalse(store.formattedAggregateTokens.isEmpty)
+    }
+
+    func testFormattedAggregateCostReturnsNonEmpty() async throws {
+        XCTAssertFalse(store.formattedAggregateCost.isEmpty)
+    }
+
+    func testFormattedTotalRuntimeReturnsNonEmpty() async throws {
+        XCTAssertFalse(store.formattedTotalRuntime.isEmpty)
+    }
+
+    func testFormattedAverageDurationReturnsNonEmpty() async throws {
+        XCTAssertFalse(store.formattedAverageDuration.isEmpty)
+    }
+
+    func testAggregateTokensUpdatesAfterNewSession() async throws {
+        let tokensBefore = store.aggregateTokens
+        store.createNewSession()
+        // New session has 0 tokens, so aggregate should be same
+        XCTAssertEqual(store.aggregateTokens, tokensBefore)
+    }
+
+    func testAggregateCostUpdatesAfterClearAll() async throws {
+        XCTAssertGreaterThan(store.aggregateCost, 0)
+        store.clearAllSessions()
+        XCTAssertEqual(store.aggregateCost, 0)
     }
 }
 
@@ -568,12 +438,12 @@ final class SessionStoreClearAllTests: XCTestCase {
         XCTAssertNil(store.selectedSessionId)
     }
 
-    func testClearAllSessionsInvalidatesFilterCache() async throws {
-        let _ = store.filteredSessions(searchText: "", status: nil, sortOrder: .newest)
+    func testClearAllSessionsResetsAggregates() async throws {
+        XCTAssertGreaterThan(store.sessions.count, 0)
         store.clearAllSessions()
-        let result = store.filteredSessions(searchText: "", status: nil, sortOrder: .newest)
-        XCTAssertTrue(result.active.isEmpty)
-        XCTAssertTrue(result.other.isEmpty)
+        XCTAssertEqual(store.aggregateTokens, 0)
+        XCTAssertEqual(store.aggregateCost, 0)
+        XCTAssertEqual(store.totalRuntime, 0)
     }
 }
 
@@ -838,6 +708,44 @@ final class SessionMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.toolCallCount, 0)
         XCTAssertEqual(metrics.errorCount, 0)
         XCTAssertEqual(metrics.apiCalls, 0)
+        XCTAssertEqual(metrics.cost, 0.0)
+        XCTAssertEqual(metrics.modelName, "")
+    }
+
+    func testCostAndModelName() {
+        let metrics = SessionMetrics(totalTokens: 1000, cost: 0.0542, modelName: "claude-3-opus")
+        XCTAssertEqual(metrics.cost, 0.0542, accuracy: 0.0001)
+        XCTAssertEqual(metrics.modelName, "claude-3-opus")
+    }
+
+    func testFormattedCostPositive() {
+        let metrics = SessionMetrics(cost: 0.0542)
+        XCTAssertEqual(metrics.formattedCost, "$0.0542")
+    }
+
+    func testFormattedCostZero() {
+        let metrics = SessionMetrics(cost: 0.0)
+        XCTAssertEqual(metrics.formattedCost, "--")
+    }
+
+    func testCostDecodesFromJSON() throws {
+        let json = """
+        {"totalTokens":100,"inputTokens":50,"outputTokens":50,"toolCallCount":1,"errorCount":0,"apiCalls":1,"cost":0.123,"modelName":"gpt-4"}
+        """
+        let data = Data(json.utf8)
+        let metrics = try JSONDecoder().decode(SessionMetrics.self, from: data)
+        XCTAssertEqual(metrics.cost, 0.123, accuracy: 0.0001)
+        XCTAssertEqual(metrics.modelName, "gpt-4")
+    }
+
+    func testCostDefaultsWhenMissingFromJSON() throws {
+        let json = """
+        {"totalTokens":100,"inputTokens":50,"outputTokens":50,"toolCallCount":1,"errorCount":0,"apiCalls":1}
+        """
+        let data = Data(json.utf8)
+        let metrics = try JSONDecoder().decode(SessionMetrics.self, from: data)
+        XCTAssertEqual(metrics.cost, 0.0)
+        XCTAssertEqual(metrics.modelName, "")
     }
 
     func testContextWindowDefaults() {
@@ -1132,9 +1040,7 @@ final class SessionStoreMergeRaceTests: XCTestCase {
             isUITesting: false,
             isUnitTesting: true,
             mockSessionCount: nil,
-            fixedNow: nil,
-            forceMenuBarExtraVisible: false,
-            useStatusItemPopover: false
+            fixedNow: nil
         )
         let store = SessionStore(agentService: AgentService(), persistence: persistence, environment: environment)
 

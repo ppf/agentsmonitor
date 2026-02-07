@@ -9,8 +9,7 @@ final class AgentsMonitorMenuBarTests: XCTestCase {
 
     func testMenuBarExtraContents() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--status-item"]
-        app.launchEnvironment["AGENTS_MONITOR_USE_STATUS_ITEM"] = "1"
+        app.launchArguments = ["--ui-testing"]
         app.launch()
 
         var statusItem = app.menuBars.statusItems["menuBar.statusItem"]
@@ -67,7 +66,6 @@ final class AgentsMonitorMenuBarTests: XCTestCase {
             XCTAssertTrue(app.staticTexts["4 active"].waitForExistence(timeout: 5))
         }
 
-        XCTAssertTrue(app.buttons["menuBar.action.openWindow"].exists)
         XCTAssertTrue(app.buttons["menuBar.action.refresh"].exists)
         XCTAssertTrue(app.buttons["menuBar.action.settings"].exists)
         let quitButton = app.buttons["menuBar.action.quit"]
@@ -174,36 +172,7 @@ final class AgentsMonitorHistoryLoadingTests: XCTestCase {
 
     private func verifySessionAndHistoryVisible(in app: XCUIApplication, seeded: SeededSession) {
         let sessionByName = app.staticTexts[seeded.sessionName]
-        XCTAssertTrue(sessionByName.waitForExistence(timeout: 20), "Expected seeded session to appear")
-        if sessionByName.isHittable {
-            sessionByName.click()
-        }
-
-        clickToolCallsTab(in: app)
-    }
-
-    private func clickToolCallsTab(in app: XCUIApplication) {
-        let tabByIdentifierButton = app.buttons["session.detail.tab.toolCalls"]
-        if tabByIdentifierButton.waitForExistence(timeout: 2) {
-            tabByIdentifierButton.click()
-            return
-        }
-
-        let tabByIdentifierRadio = app.radioButtons["session.detail.tab.toolCalls"]
-        if tabByIdentifierRadio.waitForExistence(timeout: 2) {
-            tabByIdentifierRadio.click()
-            return
-        }
-
-        let tabByLabelButton = app.buttons["Tool Calls"]
-        if tabByLabelButton.waitForExistence(timeout: 2) {
-            tabByLabelButton.click()
-            return
-        }
-
-        let tabByLabelRadio = app.radioButtons["Tool Calls"]
-        XCTAssertTrue(tabByLabelRadio.waitForExistence(timeout: 5), "Expected Tool Calls detail tab control")
-        tabByLabelRadio.click()
+        XCTAssertTrue(sessionByName.waitForExistence(timeout: 20), "Expected seeded session to appear in menu bar popover")
     }
 
     private func seedLegacySession() throws -> SeededSession {
