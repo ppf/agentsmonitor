@@ -8,36 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		AM001 /* AgentsMonitorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF001 /* AgentsMonitorApp.swift */; };
-		AM002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF002 /* ContentView.swift */; };
 		AM003 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF003 /* Session.swift */; };
 		AM004 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF004 /* Message.swift */; };
 		AM005 /* ToolCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF005 /* ToolCall.swift */; };
-		AM006 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF006 /* AppState.swift */; };
 		AM007 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF007 /* SessionStore.swift */; };
 		AM008 /* AgentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF008 /* AgentService.swift */; };
-		AM009 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF009 /* SessionListView.swift */; };
-		AM010 /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF010 /* SessionDetailView.swift */; };
-		AM012 /* ToolCallsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF012 /* ToolCallsView.swift */; };
-		AM013 /* MetricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF013 /* MetricsView.swift */; };
-		AM014 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF014 /* SettingsView.swift */; };
 		AM015 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF015 /* MenuBarView.swift */; };
-		AM016 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF016 /* StatusBadge.swift */; };
 		AM018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AMF018 /* Assets.xcassets */; };
 		AM019 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF020 /* SessionPersistence.swift */; };
 		AM020 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF021 /* Logger.swift */; };
 		AM021 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF022 /* AppTheme.swift */; };
-		AM022 /* AgentProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF023 /* AgentProcessManager.swift */; };
-		AM023 /* TerminalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF024 /* TerminalBridge.swift */; };
-		AM024 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF025 /* TerminalView.swift */; };
-		AM025 /* NewSessionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF026 /* NewSessionSheet.swift */; };
-		AM026 /* TerminalThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF027 /* TerminalThemes.swift */; };
-		AM027 /* TerminalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF028 /* TerminalSettingsView.swift */; };
 		AM028 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = AMF029 /* Fonts */; };
 		AM029 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF031 /* AppEnvironment.swift */; };
-		AM030 /* SessionDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C61DF62F335A4F003FE5C1 /* SessionDebugView.swift */; };
-		AM031 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF032 /* AppDelegate.swift */; };
-		AM033 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF033 /* StatusItemController.swift */; };
-		AMPKG001 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = AMPKGREF001 /* SwiftTerm */; };
+		AM034 /* MenuBarMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF034 /* MenuBarMainView.swift */; };
+		AM035 /* MenuBarSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF035 /* MenuBarSettingsView.swift */; };
 		AMTB001 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF001 /* SessionStoreTests.swift */; };
 		AMTB002 /* AgentsMonitorMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF003 /* AgentsMonitorMenuBarTests.swift */; };
 /* End PBXBuildFile section */
@@ -60,46 +44,23 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		00C61DEC2F33475B003FE5C1 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
-		00C61DF32F3347B7003FE5C1 /* TerminalThemes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemes.swift; sourceTree = "<group>"; };
-		00C61DF42F3347E8003FE5C1 /* AgentProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessManager.swift; sourceTree = "<group>"; };
-		00C61DF52F334835003FE5C1 /* BUILD_FIXES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_FIXES.md; sourceTree = "<group>"; };
-		00C61DF62F335A4F003FE5C1 /* SessionDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDebugView.swift; sourceTree = "<group>"; };
-		00C61DF72F335A7E003FE5C1 /* SESSION_LOADING_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SESSION_LOADING_FIX.md; sourceTree = "<group>"; };
-		00C61DF82F336864003FE5C1 /* BUILD_VERIFICATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = BUILD_VERIFICATION.md; sourceTree = "<group>"; };
-		00C61DF92F3368A1003FE5C1 /* COMPLETE_BUILD_REPORT.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = COMPLETE_BUILD_REPORT.md; sourceTree = "<group>"; };
-		00C61DFA2F33A3D6003FE5C1 /* SESSION_DECODING_FIX.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SESSION_DECODING_FIX.md; sourceTree = "<group>"; };
 		AMF001 /* AgentsMonitorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsMonitorApp.swift; sourceTree = "<group>"; };
-		AMF002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AMF003 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		AMF004 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		AMF005 /* ToolCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCall.swift; sourceTree = "<group>"; };
-		AMF006 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		AMF007 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		AMF008 /* AgentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentService.swift; sourceTree = "<group>"; };
-		AMF009 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
-		AMF010 /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
-		AMF012 /* ToolCallsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallsView.swift; sourceTree = "<group>"; };
-		AMF013 /* MetricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsView.swift; sourceTree = "<group>"; };
-		AMF014 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AMF015 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
-		AMF016 /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
 		AMF018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AMF019 /* AgentsMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentsMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AMF020 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		AMF021 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		AMF022 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
-		AMF023 /* AgentProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessManager.swift; sourceTree = "<group>"; };
-		AMF024 /* TerminalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBridge.swift; sourceTree = "<group>"; };
-		AMF025 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
-		AMF026 /* NewSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSheet.swift; sourceTree = "<group>"; };
-		AMF027 /* TerminalThemes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemes.swift; sourceTree = "<group>"; };
-		AMF028 /* TerminalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSettingsView.swift; sourceTree = "<group>"; };
 		AMF029 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
 		AMF030 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AMF031 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
-		AMF032 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		AMF033 /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		AMF034 /* MenuBarMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarMainView.swift; sourceTree = "<group>"; };
+		AMF035 /* MenuBarSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarSettingsView.swift; sourceTree = "<group>"; };
 		AMTF001 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
 		AMTF002 /* AgentsMonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentsMonitorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AMTF003 /* AgentsMonitorMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsMonitorMenuBarTests.swift; sourceTree = "<group>"; };
@@ -111,7 +72,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AMPKG001 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,15 +85,6 @@
 				AMTG001 /* ../AgentsMonitorTests */,
 				AMTG002 /* ../AgentsMonitorUITests */,
 				AMG003 /* Products */,
-				00C61DEC2F33475B003FE5C1 /* AppTheme.swift */,
-				00C61DF32F3347B7003FE5C1 /* TerminalThemes.swift */,
-				00C61DF42F3347E8003FE5C1 /* AgentProcessManager.swift */,
-				00C61DF52F334835003FE5C1 /* BUILD_FIXES.md */,
-				00C61DF62F335A4F003FE5C1 /* SessionDebugView.swift */,
-				00C61DF72F335A7E003FE5C1 /* SESSION_LOADING_FIX.md */,
-				00C61DF82F336864003FE5C1 /* BUILD_VERIFICATION.md */,
-				00C61DF92F3368A1003FE5C1 /* COMPLETE_BUILD_REPORT.md */,
-				00C61DFA2F33A3D6003FE5C1 /* SESSION_DECODING_FIX.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -146,7 +97,6 @@
 				AMG006 /* Views */,
 				AMG007 /* ViewModels */,
 				AMG008 /* Services */,
-				AMG009 /* Components */,
 				AMG010 /* Resources */,
 				AMG016 /* Theme */,
 			);
@@ -167,8 +117,6 @@
 			isa = PBXGroup;
 			children = (
 				AMF001 /* AgentsMonitorApp.swift */,
-				AMF032 /* AppDelegate.swift */,
-				AMF033 /* StatusItemController.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -179,7 +127,6 @@
 				AMF003 /* Session.swift */,
 				AMF004 /* Message.swift */,
 				AMF005 /* ToolCall.swift */,
-				AMF006 /* AppState.swift */,
 				AMF031 /* AppEnvironment.swift */,
 			);
 			path = Models;
@@ -189,10 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				AMG011 /* MainWindow */,
-				AMG012 /* SessionList */,
-				AMG013 /* SessionDetail */,
-				AMG014 /* ToolCalls */,
-				AMG015 /* Settings */,
+				AMG017 /* MenuBar */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -208,21 +152,11 @@
 		AMG008 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				AMF023 /* AgentProcessManager.swift */,
-				AMF024 /* TerminalBridge.swift */,
 				AMF008 /* AgentService.swift */,
 				AMF020 /* SessionPersistence.swift */,
 				AMF021 /* Logger.swift */,
 			);
 			path = Services;
-			sourceTree = "<group>";
-		};
-		AMG009 /* Components */ = {
-			isa = PBXGroup;
-			children = (
-				AMF016 /* StatusBadge.swift */,
-			);
-			path = Components;
 			sourceTree = "<group>";
 		};
 		AMG010 /* Resources */ = {
@@ -237,55 +171,26 @@
 		AMG011 /* MainWindow */ = {
 			isa = PBXGroup;
 			children = (
-				AMF002 /* ContentView.swift */,
 				AMF015 /* MenuBarView.swift */,
 			);
 			path = MainWindow;
-			sourceTree = "<group>";
-		};
-		AMG012 /* SessionList */ = {
-			isa = PBXGroup;
-			children = (
-				AMF026 /* NewSessionSheet.swift */,
-				AMF009 /* SessionListView.swift */,
-			);
-			path = SessionList;
-			sourceTree = "<group>";
-		};
-		AMG013 /* SessionDetail */ = {
-			isa = PBXGroup;
-			children = (
-				AMF025 /* TerminalView.swift */,
-				AMF010 /* SessionDetailView.swift */,
-				AMF013 /* MetricsView.swift */,
-			);
-			path = SessionDetail;
-			sourceTree = "<group>";
-		};
-		AMG014 /* ToolCalls */ = {
-			isa = PBXGroup;
-			children = (
-				AMF012 /* ToolCallsView.swift */,
-			);
-			path = ToolCalls;
-			sourceTree = "<group>";
-		};
-		AMG015 /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-				AMF014 /* SettingsView.swift */,
-				AMF028 /* TerminalSettingsView.swift */,
-			);
-			path = Settings;
 			sourceTree = "<group>";
 		};
 		AMG016 /* Theme */ = {
 			isa = PBXGroup;
 			children = (
 				AMF022 /* AppTheme.swift */,
-				AMF027 /* TerminalThemes.swift */,
 			);
 			path = Theme;
+			sourceTree = "<group>";
+		};
+		AMG017 /* MenuBar */ = {
+			isa = PBXGroup;
+			children = (
+				AMF034 /* MenuBarMainView.swift */,
+				AMF035 /* MenuBarSettingsView.swift */,
+			);
+			path = MenuBar;
 			sourceTree = "<group>";
 		};
 		AMTG001 /* ../AgentsMonitorTests */ = {
@@ -321,7 +226,6 @@
 			);
 			name = AgentsMonitor;
 			packageProductDependencies = (
-				AMPKGREF001 /* SwiftTerm */,
 			);
 			productName = AgentsMonitor;
 			productReference = AMF019 /* AgentsMonitor.app */;
@@ -379,7 +283,6 @@
 			);
 			mainGroup = AMG001;
 			packageReferences = (
-				AMSPMPKG001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = AMG003 /* Products */;
 			projectDirPath = "";
@@ -410,33 +313,18 @@
 			buildActionMask = 2147483647;
 			files = (
 				AM001 /* AgentsMonitorApp.swift in Sources */,
-				AM031 /* AppDelegate.swift in Sources */,
-				AM033 /* StatusItemController.swift in Sources */,
-				AM002 /* ContentView.swift in Sources */,
 				AM003 /* Session.swift in Sources */,
 				AM004 /* Message.swift in Sources */,
 				AM005 /* ToolCall.swift in Sources */,
-				AM006 /* AppState.swift in Sources */,
 				AM029 /* AppEnvironment.swift in Sources */,
 				AM007 /* SessionStore.swift in Sources */,
 				AM008 /* AgentService.swift in Sources */,
-				AM009 /* SessionListView.swift in Sources */,
-				AM010 /* SessionDetailView.swift in Sources */,
-				AM012 /* ToolCallsView.swift in Sources */,
-				AM013 /* MetricsView.swift in Sources */,
-				AM014 /* SettingsView.swift in Sources */,
 				AM015 /* MenuBarView.swift in Sources */,
-				AM016 /* StatusBadge.swift in Sources */,
+				AM034 /* MenuBarMainView.swift in Sources */,
+				AM035 /* MenuBarSettingsView.swift in Sources */,
 				AM019 /* SessionPersistence.swift in Sources */,
 				AM020 /* Logger.swift in Sources */,
 				AM021 /* AppTheme.swift in Sources */,
-				AM022 /* AgentProcessManager.swift in Sources */,
-				AM023 /* TerminalBridge.swift in Sources */,
-				AM024 /* TerminalView.swift in Sources */,
-				AM025 /* NewSessionSheet.swift in Sources */,
-				AM026 /* TerminalThemes.swift in Sources */,
-				AM027 /* TerminalSettingsView.swift in Sources */,
-				AM030 /* SessionDebugView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -759,25 +647,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		AMSPMPKG001 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.2.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		AMPKGREF001 /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = AMSPMPKG001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
-			productName = SwiftTerm;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AMPROJ /* Project object */;
 }

@@ -6,8 +6,6 @@ struct AppEnvironment: Sendable {
     let isUnitTesting: Bool
     let mockSessionCount: Int?
     let fixedNow: Date?
-    let forceMenuBarExtraVisible: Bool
-    let useStatusItemPopover: Bool
 
     var isTesting: Bool {
         isUITesting || isUnitTesting
@@ -26,17 +24,12 @@ struct AppEnvironment: Sendable {
         let isUnitTesting = env["XCTestConfigurationFilePath"] != nil
         let mockSessionCount = Int(env["AGENTS_MONITOR_UI_TEST_SESSIONS"] ?? "")
         let fixedNow = isUITesting ? AppEnvironment.defaultFixedNow : nil
-        let useStatusItemPopover = isUITesting
-            || args.contains("--status-item")
-            || env["AGENTS_MONITOR_USE_STATUS_ITEM"] == "1"
 
         return AppEnvironment(
             isUITesting: isUITesting,
             isUnitTesting: isUnitTesting,
             mockSessionCount: mockSessionCount,
-            fixedNow: fixedNow,
-            forceMenuBarExtraVisible: isUITesting,
-            useStatusItemPopover: useStatusItemPopover
+            fixedNow: fixedNow
         )
     }
 

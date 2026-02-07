@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import SwiftTerm
 
 @Observable
 final class SessionStore {
@@ -24,43 +23,16 @@ final class SessionStore {
     private var currentPage = 0
     private var hasMorePages = true
 
-    // MARK: - Cache
-
-    private var filteredCache: FilteredSessionsCache?
-
-    private struct FilteredSessionsCache {
-        let searchText: String
-        let status: SessionStatus?
-        let sortOrder: AppState.SortOrder
-        let result: [Session]
-        let activeSessions: [Session]
-        let otherSessions: [Session]
-    }
-
     // MARK: - Dependencies
 
     private let agentService: AgentService
     private let persistence: SessionPersistence?
     private let environment: AppEnvironment
-    private let processManager = AgentProcessManager()
-    private var bridges: [UUID: TerminalBridge] = [:]
-    private var securityScopedResources: [UUID: URL] = [:]
-    private var securityScopedExecutables: [UUID: URL] = [:]
     private var loadingSessionIds: Set<UUID> = []
-    private var startingSessionIds: Set<UUID> = []
-    private var terminalOutputPersistenceTimers: [UUID: Date] = [:]
-
-    /// Maximum terminal output size per session (10 MB).
-    /// When exceeded, the oldest bytes are trimmed to stay within this limit.
-    private static let maxTerminalOutputSize = 10 * 1024 * 1024
-
-    /// Minimum interval between persistence writes triggered by terminal output (500ms).
-    private static let terminalPersistenceThrottleInterval: TimeInterval = 0.5
 
     private var isRunningTests: Bool {
         environment.isTesting
     }
-    private let lastWorkingDirectoryKey = "lastWorkingDirectory"
 
     // MARK: - Initialization
 
@@ -92,34 +64,6 @@ final class SessionStore {
         }
     }
 
-    var defaultWorkingDirectory: URL {
-        lastWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-    }
-
-    private var lastWorkingDirectory: URL? {
-        get {
-            guard let path = UserDefaults.standard.string(forKey: lastWorkingDirectoryKey) else { return nil }
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
-                  isDir.boolValue else {
-                return nil
-            }
-            return URL(fileURLWithPath: path)
-        }
-        set {
-            guard let url = newValue else {
-                UserDefaults.standard.removeObject(forKey: lastWorkingDirectoryKey)
-                return
-            }
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
-                  isDir.boolValue else {
-                return
-            }
-            UserDefaults.standard.set(url.path, forKey: lastWorkingDirectoryKey)
-        }
-    }
-
     var runningSessions: [Session] {
         sessions.filter { $0.status == .running }
     }
@@ -140,86 +84,77 @@ final class SessionStore {
         sessions.filter { $0.status == .waiting }
     }
 
-    // MARK: - Filtered Sessions with Caching
+    // MARK: - Aggregate Stats
 
-    func filteredSessions(searchText: String, status: SessionStatus?, sortOrder: AppState.SortOrder) -> (active: [Session], other: [Session]) {
-        // Return cached result if inputs haven't changed
-        if let cache = filteredCache,
-           cache.searchText == searchText,
-           cache.status == status,
-           cache.sortOrder == sortOrder {
-            return (cache.activeSessions, cache.otherSessions)
+    var aggregateTokens: Int {
+        sessions.reduce(0) { $0 + $1.metrics.totalTokens }
+    }
+
+    var aggregateCost: Double {
+        sessions.reduce(0) { $0 + $1.metrics.cost }
+    }
+
+    var totalRuntime: TimeInterval {
+        let now = environment.now
+        return sessions.reduce(0) { $0 + $1.duration(asOf: now) }
+    }
+
+    var averageDuration: TimeInterval {
+        guard !sessions.isEmpty else { return 0 }
+        return totalRuntime / Double(sessions.count)
+    }
+
+    var formattedAggregateTokens: String {
+        let total = aggregateTokens
+        if total >= 1_000_000 {
+            return String(format: "%.1fM", Double(total) / 1_000_000)
+        } else if total >= 1_000 {
+            return String(format: "%.1fK", Double(total) / 1_000)
         }
+        return "\(total)"
+    }
 
-        // Compute filtered results
-        var result = sessions
+    var formattedAggregateCost: String {
+        aggregateCost > 0 ? String(format: "$%.2f", aggregateCost) : "--"
+    }
 
-        if !searchText.isEmpty {
-            result = result.filter { session in
-                session.name.localizedCaseInsensitiveContains(searchText) ||
-                session.messages.contains { $0.content.localizedCaseInsensitiveContains(searchText) }
-            }
+    var formattedTotalRuntime: String {
+        Self.formatDuration(totalRuntime)
+    }
+
+    var formattedAverageDuration: String {
+        Self.formatDuration(averageDuration)
+    }
+
+    static func formatDuration(_ interval: TimeInterval) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        if interval < 60 {
+            formatter.allowedUnits = [.second]
+        } else if interval < 3600 {
+            formatter.allowedUnits = [.minute]
+        } else {
+            formatter.allowedUnits = [.hour, .minute]
         }
-
-        if let status = status {
-            result = result.filter { $0.status == status }
-        }
-
-        switch sortOrder {
-        case .newest:
-            result.sort { $0.startedAt > $1.startedAt }
-        case .oldest:
-            result.sort { $0.startedAt < $1.startedAt }
-        case .name:
-            result.sort { $0.name < $1.name }
-        case .status:
-            result.sort { $0.status.rawValue < $1.status.rawValue }
-        }
-
-        // Partition into active and other sessions in a single pass
-        var activeSessions: [Session] = []
-        var otherSessions: [Session] = []
-
-        for session in result {
-            if session.status == .running || session.status == .waiting {
-                activeSessions.append(session)
-            } else {
-                otherSessions.append(session)
-            }
-        }
-
-        // Cache the result
-        filteredCache = FilteredSessionsCache(
-            searchText: searchText,
-            status: status,
-            sortOrder: sortOrder,
-            result: result,
-            activeSessions: activeSessions,
-            otherSessions: otherSessions
-        )
-
-        return (activeSessions, otherSessions)
+        return formatter.string(from: interval) ?? "0s"
     }
 
     // MARK: - Session CRUD
 
     func createNewSession() {
         let name = "New Session \(sessions.count + 1)"
-        createSession(agentType: .claudeCode, workingDirectory: defaultWorkingDirectory, name: name)
+        createSession(agentType: .claudeCode, name: name)
     }
 
-    func createSession(agentType: AgentType, workingDirectory: URL, name: String?) {
+    func createSession(agentType: AgentType, name: String?) {
         let sessionName = name ?? "\(agentType.displayName) Session \(sessions.count + 1)"
         let session = Session(
             name: sessionName,
             status: .waiting,
-            agentType: agentType,
-            workingDirectory: workingDirectory
+            agentType: agentType
         )
         sessions.insert(session, at: 0)
         selectedSessionId = session.id
-        invalidateCache()
-        lastWorkingDirectory = workingDirectory
 
         AppLogger.logSessionCreated(session)
         persistSession(session)
@@ -227,17 +162,11 @@ final class SessionStore {
 
     func deleteSession(_ session: Session) {
         let sessionId = session.id
-        if session.status == .running || session.status == .paused || session.status == .waiting {
-            Task { @MainActor [weak self] in
-                await self?.cleanupProcessResources(sessionId: sessionId)
-            }
-        }
         sessions.removeAll { $0.id == sessionId }
 
         if selectedSessionId == sessionId {
             selectedSessionId = sessions.first?.id
         }
-        invalidateCache()
 
         AppLogger.logSessionDeleted(sessionId)
 
@@ -247,18 +176,11 @@ final class SessionStore {
     }
 
     func clearAllSessions() {
-        let activeSessionIds = sessions
-            .filter { $0.status == .running || $0.status == .paused || $0.status == .waiting }
-            .map { $0.id }
         sessions.removeAll()
         selectedSessionId = nil
-        invalidateCache()
-        Task { @MainActor [weak self] in
-            for id in activeSessionIds {
-                await self?.cleanupProcessResources(sessionId: id)
-            }
+        Task {
             do {
-                try await self?.persistence?.clearAllSessions()
+                try await persistence?.clearAllSessions()
             } catch {
                 AppLogger.logPersistenceError(error, context: "clearing all sessions")
             }
@@ -268,7 +190,6 @@ final class SessionStore {
     func clearCompletedSessions() {
         let completedIds = sessions.filter { $0.status == .completed }.map { $0.id }
         sessions.removeAll { $0.status == .completed }
-        invalidateCache()
 
         Task {
             for id in completedIds {
@@ -281,7 +202,6 @@ final class SessionStore {
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
             let oldStatus = sessions[index].status
             sessions[index] = session
-            invalidateCache()
 
             if oldStatus != session.status {
                 AppLogger.logSessionStatusChanged(session, from: oldStatus)
@@ -291,199 +211,11 @@ final class SessionStore {
         }
     }
 
-    // MARK: - Session Actions
-
-    @MainActor
-    func pauseSession(_ session: Session) async throws {
-        guard session.status == .running else { return }
-
-        var updated = session
-        updated.status = .paused
-        updateSession(updated)
-
-        // Send SIGTSTP to pause process
-        await processManager.sendSignal(SIGTSTP, to: session.id)
-    }
-
-    @MainActor
-    func resumeSession(_ session: Session) async throws {
-        guard session.status == .paused else { return }
-
-        var updated = session
-        updated.status = .running
-        updateSession(updated)
-
-        // Send SIGCONT to resume process
-        await processManager.sendSignal(SIGCONT, to: session.id)
-    }
-
-    @MainActor
-    func cancelSession(_ session: Session) async throws {
-        guard session.status == .running || session.status == .paused || session.status == .waiting else { return }
-
-        await terminateSession(session.id)
-    }
-
-    @MainActor
-    func retrySession(_ session: Session) async throws {
-        guard session.status == .failed || session.status == .cancelled else { return }
-
-        var updated = session
-        updated.status = .waiting
-        updated.endedAt = nil
-        updated.errorMessage = nil
-        updated.processId = nil
-        updated.metrics.errorCount = 0
-        updateSession(updated)
-    }
-
-    // MARK: - Process Lifecycle
-
-    func getOrCreateBridge(for sessionId: UUID) -> TerminalBridge {
-        if let bridge = bridges[sessionId] {
-            return bridge
-        }
-        let bridge = TerminalBridge()
-        bridges[sessionId] = bridge
-        return bridge
-    }
-
-    @MainActor
-    func startSession(_ sessionId: UUID, terminal: SwiftTerm.TerminalView) async {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }),
-              sessions[index].status == .waiting else { return }
-        guard !startingSessionIds.contains(sessionId) else { return }
-        startingSessionIds.insert(sessionId)
-        defer { startingSessionIds.remove(sessionId) }
-
-        let session = sessions[index]
-        let bridge = getOrCreateBridge(for: sessionId)
-        bridge.attachTerminal(terminal, onTermination: { [weak self] exitCode in
-            let code = exitCode ?? -1
-            Task { @MainActor [weak self] in
-                self?.handleProcessExit(sessionId: sessionId, exitCode: code)
-            }
-        }, onDataReceived: { [weak self] data in
-            Task { @MainActor [weak self] in
-                self?.handleTerminalOutput(sessionId: sessionId, data: data)
-            }
-        })
-
-        let workingDir = session.workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-        let didAccess = startAccessingSecurityScopedResource(for: sessionId, url: workingDir)
-        let didAccessExecutable = startAccessingExecutable(for: sessionId, agentType: session.agentType)
-
-        do {
-            let result = try await processManager.spawn(
-                sessionId: sessionId,
-                agentType: session.agentType,
-                workingDirectory: workingDir,
-                bridge: bridge
-            )
-
-            sessions[index].status = .running
-            sessions[index].processId = result.process.shellPid
-            invalidateCache()
-            persistSession(sessions[index])
-
-            AppLogger.logSessionStatusChanged(sessions[index], from: .waiting)
-
-        } catch {
-            if didAccess {
-                stopAccessingSecurityScopedResource(sessionId: sessionId)
-            }
-            if didAccessExecutable {
-                stopAccessingExecutable(sessionId: sessionId)
-            }
-            bridge.disconnect()
-            sessions[index].status = .failed
-            sessions[index].errorMessage = error.localizedDescription
-            sessions[index].endedAt = Date()
-            invalidateCache()
-            persistSession(sessions[index])
-
-            AppLogger.logError(error, context: "starting session \(sessionId)")
-        }
-    }
-
-    @MainActor
-    func terminateSession(_ sessionId: UUID) async {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-
-        let previousStatus = sessions[index].status
-        await processManager.terminate(sessionId: sessionId)
-        bridges[sessionId]?.disconnect()
-        bridges.removeValue(forKey: sessionId)
-        stopAccessingSecurityScopedResource(sessionId: sessionId)
-        stopAccessingExecutable(sessionId: sessionId)
-
-        sessions[index].status = .cancelled
-        sessions[index].endedAt = Date()
-        sessions[index].processId = nil
-        invalidateCache()
-        persistSession(sessions[index])
-
-        AppLogger.logSessionStatusChanged(sessions[index], from: previousStatus)
-    }
-
-    @MainActor
-    private func handleProcessExit(sessionId: UUID, exitCode: Int32) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-
-        let previousStatus = sessions[index].status
-        sessions[index].status = exitCode == 0 ? .completed : .failed
-        sessions[index].endedAt = Date()
-        sessions[index].processId = nil
-        sessions[index].exitCode = exitCode
-        if exitCode != 0 {
-            sessions[index].errorMessage = "Process exited with code \(exitCode)"
-            sessions[index].metrics.errorCount += 1
-        }
-
-        bridges[sessionId]?.disconnect()
-        bridges.removeValue(forKey: sessionId)
-        terminalOutputPersistenceTimers.removeValue(forKey: sessionId)
-        Task { await processManager.cleanup(sessionId: sessionId) }
-        stopAccessingSecurityScopedResource(sessionId: sessionId)
-        stopAccessingExecutable(sessionId: sessionId)
-
-        invalidateCache()
-        persistSession(sessions[index])
-
-        AppLogger.logSessionStatusChanged(sessions[index], from: previousStatus)
-    }
-
-    @MainActor
-    private func handleTerminalOutput(sessionId: UUID, data: Data) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-
-        if sessions[index].terminalOutput == nil {
-            sessions[index].terminalOutput = Data()
-        }
-        sessions[index].terminalOutput?.append(data)
-
-        // Cap terminal output to prevent unbounded memory growth
-        if let size = sessions[index].terminalOutput?.count, size > Self.maxTerminalOutputSize {
-            let excess = size - Self.maxTerminalOutputSize
-            sessions[index].terminalOutput?.removeFirst(excess)
-        }
-
-        // Throttle persistence writes -- terminal I/O can fire 100+ times/sec
-        let now = Date()
-        if let lastWrite = terminalOutputPersistenceTimers[sessionId],
-           now.timeIntervalSince(lastWrite) < Self.terminalPersistenceThrottleInterval {
-            return
-        }
-        terminalOutputPersistenceTimers[sessionId] = now
-        persistSession(sessions[index])
-    }
-
     // MARK: - Message & Tool Call Management
 
     func appendMessage(_ message: Message, to sessionId: UUID) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].messages.append(message)
-            invalidateCache()
             persistSession(sessions[index])
         }
     }
@@ -492,7 +224,6 @@ final class SessionStore {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].toolCalls.append(toolCall)
             sessions[index].metrics.toolCallCount += 1
-            invalidateCache()
 
             AppLogger.logToolCallStarted(toolCall, sessionId: sessionId)
             persistSession(sessions[index])
@@ -503,7 +234,6 @@ final class SessionStore {
         if let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId }),
            let toolIndex = sessions[sessionIndex].toolCalls.firstIndex(where: { $0.id == toolCall.id }) {
             sessions[sessionIndex].toolCalls[toolIndex] = toolCall
-            invalidateCache()
 
             if toolCall.status == .completed || toolCall.status == .failed {
                 AppLogger.logToolCallCompleted(toolCall, sessionId: sessionId)
@@ -522,11 +252,6 @@ final class SessionStore {
 
         do {
             try await AppLogger.measureAsync("refresh sessions") {
-                // In production, fetch from actual agent service
-                // let fetchedSessions = try await agentService.fetchSessions()
-                // sessions = fetchedSessions
-
-                // For now, just reload from persistence
                 if let persistence = persistence {
                     let summaries = try await persistence.loadSessionSummaries()
                     await applySessionSummaries(summaries)
@@ -549,31 +274,6 @@ final class SessionStore {
         isLoading = false
     }
 
-    @MainActor
-    func loadNextPage() async {
-        guard hasMorePages, !isLoading else { return }
-
-        isLoading = true
-        if environment.isTesting {
-            isLoading = false
-            return
-        }
-
-        do {
-            // In production, this would fetch the next page from the API
-            // let newSessions = try await agentService.fetchSessions(page: currentPage, limit: pageSize)
-            // sessions.append(contentsOf: newSessions)
-            // hasMorePages = newSessions.count == pageSize
-            // currentPage += 1
-
-            try await Task.sleep(nanoseconds: 300_000_000)
-        } catch {
-            self.error = error.localizedDescription
-        }
-
-        isLoading = false
-    }
-
     // MARK: - Error Handling
 
     func clearError() {
@@ -587,58 +287,6 @@ final class SessionStore {
     }
 
     // MARK: - Private Helpers
-
-    private func invalidateCache() {
-        filteredCache = nil
-    }
-
-    @MainActor
-    private func cleanupProcessResources(sessionId: UUID) async {
-        await processManager.terminate(sessionId: sessionId)
-        bridges[sessionId]?.disconnect()
-        bridges.removeValue(forKey: sessionId)
-        terminalOutputPersistenceTimers.removeValue(forKey: sessionId)
-        stopAccessingSecurityScopedResource(sessionId: sessionId)
-        stopAccessingExecutable(sessionId: sessionId)
-    }
-
-    private func startAccessingSecurityScopedResource(for sessionId: UUID, url: URL) -> Bool {
-        if securityScopedResources[sessionId] != nil {
-            return true
-        }
-        guard url.startAccessingSecurityScopedResource() else {
-            return false
-        }
-        securityScopedResources[sessionId] = url
-        return true
-    }
-
-    private func stopAccessingSecurityScopedResource(sessionId: UUID) {
-        if let url = securityScopedResources.removeValue(forKey: sessionId) {
-            url.stopAccessingSecurityScopedResource()
-        }
-    }
-
-    private func startAccessingExecutable(for sessionId: UUID, agentType: AgentType) -> Bool {
-        guard let url = agentType.overrideExecutableURL(),
-              agentType.overrideExecutableBookmarkData != nil else {
-            return false
-        }
-        if securityScopedExecutables[sessionId] != nil {
-            return true
-        }
-        guard url.startAccessingSecurityScopedResource() else {
-            return false
-        }
-        securityScopedExecutables[sessionId] = url
-        return true
-    }
-
-    private func stopAccessingExecutable(sessionId: UUID) {
-        if let url = securityScopedExecutables.removeValue(forKey: sessionId) {
-            url.stopAccessingSecurityScopedResource()
-        }
-    }
 
     private func persistSession(_ session: Session) {
         Task {
@@ -670,12 +318,10 @@ final class SessionStore {
         do {
             let summaries = try await persistence.loadSessionSummaries()
             AppLogger.logPersistenceLoaded(count: summaries.count)
-            
+
             if summaries.isEmpty {
-                // First detect running agents to see if we have any real sessions
                 await detectRunningAgents()
-                
-                // Only load mock data if we have no detected agents either
+
                 if sessions.isEmpty {
                     AppLogger.logWarning("No persisted or running sessions found, loading mock data", context: "loadPersistedSessions")
                     loadMockData()
@@ -684,15 +330,13 @@ final class SessionStore {
                 }
             } else {
                 await applySessionSummaries(summaries)
-                // Still detect running agents to add them to the list
                 await detectRunningAgents()
             }
         } catch {
             AppLogger.logPersistenceError(error, context: "loading sessions")
             AppLogger.logWarning("Failed to load persisted sessions, trying to detect running agents", context: "loadPersistedSessions")
             await detectRunningAgents()
-            
-            // Only load mock data if we have no detected agents
+
             if sessions.isEmpty {
                 loadMockData()
             }
@@ -705,15 +349,11 @@ final class SessionStore {
     private func applySessionSummaries(_ summaries: [SessionSummary]) async {
         let sorted = summaries.sorted { $0.startedAt > $1.startedAt }
         sessions = sorted.map { $0.toSession() }
-        if let recentWorkingDir = sessions.first(where: { $0.workingDirectory != nil })?.workingDirectory {
-            lastWorkingDirectory = recentWorkingDir
-        }
         if let current = selectedSessionId, sessions.contains(where: { $0.id == current }) {
             // Keep current selection
         } else {
             selectedSessionId = sessions.first?.id
         }
-        invalidateCache()
         if let selected = selectedSessionId {
             await loadSessionDetailsIfNeeded(selected)
         }
@@ -737,7 +377,6 @@ final class SessionStore {
                 guard !sessions[currentIndex].isExternalProcess else { return }
                 let merged = mergeLoadedSession(initial: initialSession, current: sessions[currentIndex], loaded: loaded)
                 sessions[currentIndex] = merged
-                invalidateCache()
             }
         } catch {
             AppLogger.logPersistenceError(error, context: "loading session details \(sessionId)")
@@ -753,14 +392,11 @@ final class SessionStore {
         guard !newProcesses.isEmpty else { return }
 
         let workingDirs = await Self.lookupWorkingDirectories(for: newProcesses.map(\.pid))
-        var added = false
 
         for process in newProcesses {
             let startedAt = Date().addingTimeInterval(-TimeInterval(process.elapsedSeconds))
-            
-            // Try to get the working directory for the process
             let workingDir = workingDirs[process.pid] ?? nil
-            
+
             let session = Session(
                 name: "\(process.agentType.displayName) - PID \(process.pid)",
                 status: .running,
@@ -771,17 +407,11 @@ final class SessionStore {
                 isExternalProcess: true
             )
             sessions.insert(session, at: 0)
-            added = true
-            
+
             AppLogger.logSessionCreated(session)
         }
-
-        if added {
-            invalidateCache()
-        }
     }
-    
-    /// Get the working directory for a running process
+
     private static func lookupWorkingDirectories(for pids: [Int32]) async -> [Int32: URL?] {
         await withTaskGroup(of: (Int32, URL?).self) { group in
             for pid in pids {
@@ -803,11 +433,11 @@ final class SessionStore {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
         process.arguments = ["-a", "-p", "\(pid)", "-d", "cwd", "-Fn"]
-        
+
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        
+
         do {
             try process.run()
         } catch {
@@ -828,8 +458,7 @@ final class SessionStore {
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else { return nil }
-        
-        // Parse lsof output to find the cwd
+
         for line in output.split(separator: "\n") {
             if line.starts(with: "n") {
                 let path = String(line.dropFirst())
@@ -862,7 +491,7 @@ final class SessionStore {
                 ToolCall(name: "Grep", input: "validateToken", output: "Found 3 matches", startedAt: now.addingTimeInterval(-3570), completedAt: now.addingTimeInterval(-3565), status: .completed),
                 ToolCall(name: "Edit", input: "src/auth/validate.ts", startedAt: now.addingTimeInterval(-3520), status: .running)
             ],
-            metrics: SessionMetrics(totalTokens: 15420, inputTokens: 8200, outputTokens: 7220, toolCallCount: 3, errorCount: 0, apiCalls: 5)
+            metrics: SessionMetrics(totalTokens: 15420, inputTokens: 8200, outputTokens: 7220, toolCallCount: 3, errorCount: 0, apiCalls: 5, cost: 0.0312, modelName: "claude-sonnet-4-5-20250929")
         )
 
         // Codex session - completed
@@ -882,7 +511,7 @@ final class SessionStore {
                 ToolCall(name: "Write", input: "tests/UserService.test.ts", output: "Created test file", startedAt: now.addingTimeInterval(-6800), completedAt: now.addingTimeInterval(-6750), status: .completed),
                 ToolCall(name: "Bash", input: "npm test -- UserService", output: "All 24 tests passed", startedAt: now.addingTimeInterval(-6700), completedAt: now.addingTimeInterval(-6650), status: .completed)
             ],
-            metrics: SessionMetrics(totalTokens: 32150, inputTokens: 14200, outputTokens: 17950, toolCallCount: 5, errorCount: 0, apiCalls: 8)
+            metrics: SessionMetrics(totalTokens: 32150, inputTokens: 14200, outputTokens: 17950, toolCallCount: 5, errorCount: 0, apiCalls: 8, cost: 0.1845, modelName: "codex-mini-latest")
         )
 
         // Claude Code session - completed
@@ -902,7 +531,7 @@ final class SessionStore {
                 ToolCall(name: "Edit", input: "src/settings/Settings.tsx", output: "Added theme toggle", startedAt: now.addingTimeInterval(-10500), completedAt: now.addingTimeInterval(-10450), status: .completed),
                 ToolCall(name: "Write", input: "src/styles/dark-theme.css", output: "Created dark theme styles", startedAt: now.addingTimeInterval(-10000), completedAt: now.addingTimeInterval(-9950), status: .completed)
             ],
-            metrics: SessionMetrics(totalTokens: 28450, inputTokens: 12300, outputTokens: 16150, toolCallCount: 8, errorCount: 0, apiCalls: 12)
+            metrics: SessionMetrics(totalTokens: 28450, inputTokens: 12300, outputTokens: 16150, toolCallCount: 8, errorCount: 0, apiCalls: 12, cost: 0.0923, modelName: "claude-sonnet-4-5-20250929")
         )
 
         // Codex session - failed
@@ -920,7 +549,7 @@ final class SessionStore {
             toolCalls: [
                 ToolCall(name: "Bash", input: "npm run migrate", output: nil, startedAt: now.addingTimeInterval(-1750), completedAt: now.addingTimeInterval(-1200), status: .failed, error: "Foreign key constraint violation")
             ],
-            metrics: SessionMetrics(totalTokens: 5200, inputTokens: 2100, outputTokens: 3100, toolCallCount: 1, errorCount: 1, apiCalls: 3)
+            metrics: SessionMetrics(totalTokens: 5200, inputTokens: 2100, outputTokens: 3100, toolCallCount: 1, errorCount: 1, apiCalls: 3, cost: 0.0089, modelName: "codex-mini-latest")
         )
 
         // Claude Code session - running
@@ -950,7 +579,7 @@ final class SessionStore {
                 ToolCall(name: "Glob", input: "src/routes/**/*.ts", output: "Found 12 route files", startedAt: now.addingTimeInterval(-880), completedAt: now.addingTimeInterval(-875), status: .completed),
                 ToolCall(name: "Read", input: "src/routes/users.ts", startedAt: now.addingTimeInterval(-870), status: .running)
             ],
-            metrics: SessionMetrics(totalTokens: 8500, inputTokens: 4200, outputTokens: 4300, toolCallCount: 2, errorCount: 0, apiCalls: 4)
+            metrics: SessionMetrics(totalTokens: 8500, inputTokens: 4200, outputTokens: 4300, toolCallCount: 2, errorCount: 0, apiCalls: 4, cost: 0.1050, modelName: "codex-mini-latest")
         )
 
         var baseSessions = [session1, session2, session3, session4, session5, session6]
@@ -977,7 +606,6 @@ final class SessionStore {
 
         sessions = baseSessions
         selectedSessionId = session1.id
-        invalidateCache()
     }
 
     private func mergeLoadedSession(initial: Session, current: Session, loaded: Session) -> Session {
@@ -986,7 +614,6 @@ final class SessionStore {
         merged.agentType = current.agentType
         merged.startedAt = current.startedAt
 
-        // Preserve in-memory runtime state to avoid clobbering newer updates.
         let statusUpdatedInMemory = current.status != initial.status
         let processUpdatedInMemory = current.processId != initial.processId
         let endedAtUpdatedInMemory = current.endedAt != initial.endedAt
@@ -1064,8 +691,6 @@ struct AgentProcessClassifier {
         let commHaystack = comm.lowercased()
         let fullHaystack = (comm + " " + args).lowercased()
 
-        // Prefer the executable name (`comm`) because args may contain other agent names
-        // (for example `codex --model claude-*`) and would otherwise be misclassified.
         if matchesAgent(.codex, in: commHaystack) {
             return .codex
         }
@@ -1130,7 +755,6 @@ private final class AgentProcessDiscovery {
             }
 
             let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            // Continue parsing in background...
             return self.parseOutput(data)
         }.value
     }

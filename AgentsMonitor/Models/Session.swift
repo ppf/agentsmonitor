@@ -676,6 +676,8 @@ struct SessionMetrics: Hashable, Codable {
     var cacheReadTokens: Int
     var cacheWriteTokens: Int
     var contextWindowMax: Int
+    var cost: Double
+    var modelName: String
 
     init(
         totalTokens: Int = 0,
@@ -686,7 +688,9 @@ struct SessionMetrics: Hashable, Codable {
         apiCalls: Int = 0,
         cacheReadTokens: Int = 0,
         cacheWriteTokens: Int = 0,
-        contextWindowMax: Int = defaultContextWindowMax
+        contextWindowMax: Int = defaultContextWindowMax,
+        cost: Double = 0.0,
+        modelName: String = ""
     ) {
         self.totalTokens = totalTokens
         self.inputTokens = inputTokens
@@ -697,6 +701,8 @@ struct SessionMetrics: Hashable, Codable {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.contextWindowMax = contextWindowMax
+        self.cost = cost
+        self.modelName = modelName
     }
 
     init(from decoder: Decoder) throws {
@@ -711,13 +717,15 @@ struct SessionMetrics: Hashable, Codable {
         cacheReadTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheReadTokens)) ?? 0
         cacheWriteTokens = (try? container.decodeIfPresent(Int.self, forKey: .cacheWriteTokens)) ?? 0
         contextWindowMax = (try? container.decodeIfPresent(Int.self, forKey: .contextWindowMax)) ?? Self.defaultContextWindowMax
+        cost = (try? container.decodeIfPresent(Double.self, forKey: .cost)) ?? 0.0
+        modelName = (try? container.decodeIfPresent(String.self, forKey: .modelName)) ?? ""
     }
 
     enum CodingKeys: String, CodingKey {
         case totalTokens, inputTokens, outputTokens
         case toolCallCount, errorCount, apiCalls
         case cacheReadTokens, cacheWriteTokens
-        case contextWindowMax
+        case contextWindowMax, cost, modelName
     }
 
     var contextWindowUsage: Double {
@@ -750,5 +758,9 @@ struct SessionMetrics: Hashable, Codable {
         } else {
             return "\(total)"
         }
+    }
+
+    var formattedCost: String {
+        cost > 0 ? String(format: "$%.4f", cost) : "--"
     }
 }
