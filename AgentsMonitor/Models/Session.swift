@@ -119,13 +119,53 @@ enum AgentType: String, CaseIterable, Codable {
     case gemini = "Gemini CLI"
     case custom = "Custom Agent"
 
-    var icon: String {
+    struct Configuration {
+        let icon: String
+        let color: String
+        let host: String
+        let port: Int
+        let path: String
+    }
+
+    var configuration: Configuration {
         switch self {
-        case .claudeCode: return "brain"
-        case .codex: return "chevron.left.forwardslash.chevron.right"
-        case .gemini: return "sparkles"
-        case .custom: return "cpu"
+        case .claudeCode:
+            return Configuration(
+                icon: "brain",
+                color: "purple",
+                host: "localhost",
+                port: 8080,
+                path: "/ws/claude"
+            )
+        case .codex:
+            return Configuration(
+                icon: "chevron.left.forwardslash.chevron.right",
+                color: "green",
+                host: "localhost",
+                port: 8081,
+                path: "/ws/codex"
+            )
+        case .gemini:
+            return Configuration(
+                icon: "sparkles",
+                color: "indigo",
+                host: "localhost",
+                port: 8082,
+                path: "/ws/gemini"
+            )
+        case .custom:
+            return Configuration(
+                icon: "cpu",
+                color: "blue",
+                host: "localhost",
+                port: 9000,
+                path: "/ws"
+            )
         }
+    }
+
+    var icon: String {
+        configuration.icon
     }
 
     var displayName: String {
@@ -133,39 +173,19 @@ enum AgentType: String, CaseIterable, Codable {
     }
 
     var defaultHost: String {
-        switch self {
-        case .claudeCode: return "localhost"
-        case .codex: return "localhost"
-        case .gemini: return "localhost"
-        case .custom: return "localhost"
-        }
+        configuration.host
     }
 
     var defaultPort: Int {
-        switch self {
-        case .claudeCode: return 8080
-        case .codex: return 8081
-        case .gemini: return 8082
-        case .custom: return 9000
-        }
+        configuration.port
     }
 
     var defaultPath: String {
-        switch self {
-        case .claudeCode: return "/ws/claude"
-        case .codex: return "/ws/codex"
-        case .gemini: return "/ws/gemini"
-        case .custom: return "/ws"
-        }
+        configuration.path
     }
 
     var color: String {
-        switch self {
-        case .claudeCode: return "purple"
-        case .codex: return "green"
-        case .gemini: return "indigo"
-        case .custom: return "blue"
-        }
+        configuration.color
     }
 }
 

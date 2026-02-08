@@ -171,6 +171,70 @@ Both are `Codable` with custom encoding for flexible JSON structure.
 - Ping/pong keepalive: 30s interval
 - Proper cleanup: Cancel receiveTask and pingTask on disconnect
 
+### Supported Agent Types
+
+The app supports multiple agent types, each with its own WebSocket configuration:
+
+#### Claude Code
+- **Port:** 8080
+- **Path:** `/ws/claude`
+- **Host:** localhost
+- **Icon:** brain
+- **Color:** purple
+
+#### Codex
+- **Port:** 8081
+- **Path:** `/ws/codex`
+- **Host:** localhost
+- **Icon:** chevron.left.forwardslash.chevron.right
+- **Color:** green
+
+#### Gemini CLI
+- **Port:** 8082
+- **Path:** `/ws/gemini`
+- **Host:** localhost
+- **Icon:** sparkles
+- **Color:** indigo
+
+**Gemini CLI Integration Requirements:**
+- The Gemini CLI agent must expose a WebSocket server on `localhost:8082`
+- WebSocket endpoint must be available at `/ws/gemini`
+- Must support the standard `AgentEvent` protocol (see Command & Event Protocol section)
+- Events should follow the same JSON structure as other agents:
+  - `sessionStarted`, `sessionEnded`, `sessionUpdated`
+  - `messageReceived`, `messageStreaming`
+  - `toolCallStarted`, `toolCallCompleted`, `toolCallFailed`
+  - `metricsUpdated`, `error`
+- Date encoding: ISO8601 format
+- The agent should handle reconnection attempts gracefully
+
+**Example Gemini CLI WebSocket Server Setup:**
+```python
+# Example: Gemini CLI should expose WebSocket at ws://localhost:8082/ws/gemini
+# Events should be sent as JSON with this structure:
+{
+  "type": "messageReceived",
+  "sessionId": "uuid-string",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "data": {
+    "type": "message",
+    "message": {
+      "id": "uuid",
+      "role": "assistant",
+      "content": "Response text",
+      "isStreaming": false
+    }
+  }
+}
+```
+
+#### Custom Agent
+- **Port:** 9000
+- **Path:** `/ws`
+- **Host:** localhost
+- **Icon:** cpu
+- **Color:** blue
+
 ## Theming System
 
 **AppTheme.swift** is the single source of truth for all colors, fonts, spacing. Never hardcode colors in views:

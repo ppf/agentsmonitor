@@ -637,6 +637,260 @@ final class SessionModelTests: XCTestCase {
         XCTAssertEqual(AgentType.gemini.color, "indigo")
         XCTAssertEqual(AgentType.custom.color, "blue")
     }
+
+    func testGeminiConfiguration() {
+        let config = AgentType.gemini.configuration
+        XCTAssertEqual(config.icon, "sparkles")
+        XCTAssertEqual(config.color, "indigo")
+        XCTAssertEqual(config.host, "localhost")
+        XCTAssertEqual(config.port, 8082)
+        XCTAssertEqual(config.path, "/ws/gemini")
+    }
+
+    func testAgentTypeConfigurationConsistency() {
+        // Test that configuration properties match individual property accessors
+        for agentType in AgentType.allCases {
+            let config = agentType.configuration
+            XCTAssertEqual(agentType.icon, config.icon, "Icon mismatch for \(agentType)")
+            XCTAssertEqual(agentType.color, config.color, "Color mismatch for \(agentType)")
+            XCTAssertEqual(agentType.defaultHost, config.host, "Host mismatch for \(agentType)")
+            XCTAssertEqual(agentType.defaultPort, config.port, "Port mismatch for \(agentType)")
+            XCTAssertEqual(agentType.defaultPath, config.path, "Path mismatch for \(agentType)")
+        }
+    }
+
+    func testAllAgentTypeConfigurations() {
+        let claudeConfig = AgentType.claudeCode.configuration
+        XCTAssertEqual(claudeConfig.port, 8080)
+        XCTAssertEqual(claudeConfig.path, "/ws/claude")
+
+        let codexConfig = AgentType.codex.configuration
+        XCTAssertEqual(codexConfig.port, 8081)
+        XCTAssertEqual(codexConfig.path, "/ws/codex")
+
+        let customConfig = AgentType.custom.configuration
+        XCTAssertEqual(customConfig.port, 9000)
+        XCTAssertEqual(customConfig.path, "/ws")
+    }
+}
+
+// MARK: - Codable Tests
+
+final class CodableRoundTripTests: XCTestCase {
+
+    func testSessionCodableRoundTrip() throws {
+        // Given
+        let originalSession = Session(
+            id: UUID(),
+            name: "Test Session",
+            status: .running,
+            agentType: .gemini,
+            startedAt: Date(),
+            endedAt: Date().addingTimeInterval(3600),
+            messages: [
+                Message(role: .user, content: "Hello", timestamp: Date()),
+                Message(role: .assistant, content: "Hi there", timestamp: Date())
+            ],
+            toolCalls: [
+                ToolCall(name: "TestTool", input: "input", output: "output", status: .completed)
+            ],
+            metrics: SessionMetrics(totalTokens: 1000, inputTokens: 500, outputTokens: 500, toolCallCount: 1, errorCount: 0, apiCalls: 1)
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(originalSession)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedSession = try decoder.decode(Session.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedSession.id, originalSession.id)
+        XCTAssertEqual(decodedSession.name, originalSession.name)
+        XCTAssertEqual(decodedSession.status, originalSession.status)
+        XCTAssertEqual(decodedSession.agentType, originalSession.agentType)
+        XCTAssertEqual(decodedSession.messages.count, originalSession.messages.count)
+        XCTAssertEqual(decodedSession.toolCalls.count, originalSession.toolCalls.count)
+        XCTAssertEqual(decodedSession.metrics.totalTokens, originalSession.metrics.totalTokens)
+    }
+
+    func testMessageCodableRoundTrip() throws {
+        // Given
+        let originalMessage = Message(
+            id: UUID(),
+            role: .assistant,
+            content: "Test content",
+            timestamp: Date(),
+            isStreaming: true,
+            toolUseId: UUID()
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(originalMessage)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedMessage = try decoder.decode(Message.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedMessage.id, originalMessage.id)
+        XCTAssertEqual(decodedMessage.role, originalMessage.role)
+        XCTAssertEqual(decodedMessage.content, originalMessage.content)
+        XCTAssertEqual(decodedMessage.isStreaming, originalMessage.isStreaming)
+        XCTAssertEqual(decodedMessage.toolUseId, originalMessage.toolUseId)
+    }
+
+    func testMessageCodableWithOptionalFields() throws {
+        // Given - message without optional fields
+        let originalMessage = Message(
+            role: .user,
+            content: "Simple message",
+            timestamp: Date(),
+            isStreaming: false,
+            toolUseId: nil
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(originalMessage)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedMessage = try decoder.decode(Message.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedMessage.role, originalMessage.role)
+        XCTAssertEqual(decodedMessage.content, originalMessage.content)
+        XCTAssertEqual(decodedMessage.isStreaming, false)
+        XCTAssertNil(decodedMessage.toolUseId)
+    }
+
+    func testToolCallCodableRoundTrip() throws {
+        // Given
+        let originalToolCall = ToolCall(
+            id: UUID(),
+            name: "TestTool",
+            input: "test input",
+            output: "test output",
+            startedAt: Date(),
+            completedAt: Date().addingTimeInterval(1.5),
+            status: .completed,
+            error: nil
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(originalToolCall)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedToolCall = try decoder.decode(ToolCall.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedToolCall.id, originalToolCall.id)
+        XCTAssertEqual(decodedToolCall.name, originalToolCall.name)
+        XCTAssertEqual(decodedToolCall.input, originalToolCall.input)
+        XCTAssertEqual(decodedToolCall.output, originalToolCall.output)
+        XCTAssertEqual(decodedToolCall.status, originalToolCall.status)
+        XCTAssertNil(decodedToolCall.error)
+    }
+
+    func testToolCallCodableWithError() throws {
+        // Given
+        let originalToolCall = ToolCall(
+            name: "FailingTool",
+            input: "input",
+            output: nil,
+            startedAt: Date(),
+            completedAt: Date().addingTimeInterval(0.5),
+            status: .failed,
+            error: "Test error message"
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(originalToolCall)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedToolCall = try decoder.decode(ToolCall.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedToolCall.status, .failed)
+        XCTAssertEqual(decodedToolCall.error, "Test error message")
+    }
+
+    func testSessionMetricsCodableRoundTrip() throws {
+        // Given
+        let originalMetrics = SessionMetrics(
+            totalTokens: 5000,
+            inputTokens: 2000,
+            outputTokens: 3000,
+            toolCallCount: 5,
+            errorCount: 1,
+            apiCalls: 10
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(originalMetrics)
+
+        let decoder = JSONDecoder()
+        let decodedMetrics = try decoder.decode(SessionMetrics.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedMetrics.totalTokens, originalMetrics.totalTokens)
+        XCTAssertEqual(decodedMetrics.inputTokens, originalMetrics.inputTokens)
+        XCTAssertEqual(decodedMetrics.outputTokens, originalMetrics.outputTokens)
+        XCTAssertEqual(decodedMetrics.toolCallCount, originalMetrics.toolCallCount)
+        XCTAssertEqual(decodedMetrics.errorCount, originalMetrics.errorCount)
+        XCTAssertEqual(decodedMetrics.apiCalls, originalMetrics.apiCalls)
+    }
+
+    func testAgentTypeCodableRoundTrip() throws {
+        // Test all agent types
+        for agentType in AgentType.allCases {
+            // When
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(agentType)
+
+            let decoder = JSONDecoder()
+            let decodedAgentType = try decoder.decode(AgentType.self, from: data)
+
+            // Then
+            XCTAssertEqual(decodedAgentType, agentType, "Failed to round-trip \(agentType)")
+        }
+    }
+
+    func testSessionWithGeminiAgentTypeCodable() throws {
+        // Given
+        let session = Session(
+            name: "Gemini Test",
+            status: .running,
+            agentType: .gemini,
+            startedAt: Date()
+        )
+
+        // When
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(session)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decodedSession = try decoder.decode(Session.self, from: data)
+
+        // Then
+        XCTAssertEqual(decodedSession.agentType, .gemini)
+        XCTAssertEqual(decodedSession.name, "Gemini Test")
+    }
 }
 
 final class ToolCallModelTests: XCTestCase {
