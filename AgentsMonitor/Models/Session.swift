@@ -1,6 +1,6 @@
 import Foundation
 
-struct Session: Identifiable, Hashable {
+struct Session: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var status: SessionStatus
@@ -10,6 +10,11 @@ struct Session: Identifiable, Hashable {
     var messages: [Message]
     var toolCalls: [ToolCall]
     var metrics: SessionMetrics
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, agentType, startedAt, endedAt
+        case messages, toolCalls, metrics
+    }
 
     init(
         id: UUID = UUID(),
@@ -31,6 +36,32 @@ struct Session: Identifiable, Hashable {
         self.messages = messages
         self.toolCalls = toolCalls
         self.metrics = metrics
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decode(SessionStatus.self, forKey: .status)
+        agentType = try container.decode(AgentType.self, forKey: .agentType)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        messages = try container.decode([Message].self, forKey: .messages)
+        toolCalls = try container.decode([ToolCall].self, forKey: .toolCalls)
+        metrics = try container.decode(SessionMetrics.self, forKey: .metrics)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(status, forKey: .status)
+        try container.encode(agentType, forKey: .agentType)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(endedAt, forKey: .endedAt)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(toolCalls, forKey: .toolCalls)
+        try container.encode(metrics, forKey: .metrics)
     }
 
     var duration: TimeInterval {
@@ -85,12 +116,14 @@ enum SessionStatus: String, CaseIterable, Codable {
 enum AgentType: String, CaseIterable, Codable {
     case claudeCode = "Claude Code"
     case codex = "Codex"
+    case gemini = "Gemini CLI"
     case custom = "Custom Agent"
 
     var icon: String {
         switch self {
         case .claudeCode: return "brain"
         case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .gemini: return "sparkles"
         case .custom: return "cpu"
         }
     }
@@ -103,6 +136,7 @@ enum AgentType: String, CaseIterable, Codable {
         switch self {
         case .claudeCode: return "localhost"
         case .codex: return "localhost"
+        case .gemini: return "localhost"
         case .custom: return "localhost"
         }
     }
@@ -111,6 +145,7 @@ enum AgentType: String, CaseIterable, Codable {
         switch self {
         case .claudeCode: return 8080
         case .codex: return 8081
+        case .gemini: return 8082
         case .custom: return 9000
         }
     }
@@ -119,6 +154,7 @@ enum AgentType: String, CaseIterable, Codable {
         switch self {
         case .claudeCode: return "/ws/claude"
         case .codex: return "/ws/codex"
+        case .gemini: return "/ws/gemini"
         case .custom: return "/ws"
         }
     }
@@ -127,12 +163,13 @@ enum AgentType: String, CaseIterable, Codable {
         switch self {
         case .claudeCode: return "purple"
         case .codex: return "green"
+        case .gemini: return "indigo"
         case .custom: return "blue"
         }
     }
 }
 
-struct SessionMetrics: Hashable {
+struct SessionMetrics: Hashable, Codable {
     var totalTokens: Int
     var inputTokens: Int
     var outputTokens: Int

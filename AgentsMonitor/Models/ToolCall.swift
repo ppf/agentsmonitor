@@ -1,6 +1,6 @@
 import Foundation
 
-struct ToolCall: Identifiable, Hashable {
+struct ToolCall: Identifiable, Hashable, Codable {
     let id: UUID
     let name: String
     let input: String
@@ -9,6 +9,10 @@ struct ToolCall: Identifiable, Hashable {
     var completedAt: Date?
     var status: ToolCallStatus
     var error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, input, output, startedAt, completedAt, status, error
+    }
 
     init(
         id: UUID = UUID(),
@@ -28,6 +32,30 @@ struct ToolCall: Identifiable, Hashable {
         self.completedAt = completedAt
         self.status = status
         self.error = error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        input = try container.decode(String.self, forKey: .input)
+        output = try container.decodeIfPresent(String.self, forKey: .output)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        status = try container.decode(ToolCallStatus.self, forKey: .status)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(input, forKey: .input)
+        try container.encodeIfPresent(output, forKey: .output)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(error, forKey: .error)
     }
 
     var duration: TimeInterval? {

@@ -136,10 +136,11 @@ final class SessionStore {
 
     // MARK: - Session CRUD
 
-    func createNewSession() {
+    func createNewSession(agentType: AgentType = .claudeCode) {
         let session = Session(
-            name: "New Session \(sessions.count + 1)",
-            status: .waiting
+            name: "New \(agentType.displayName) Session \(sessions.count + 1)",
+            status: .waiting,
+            agentType: agentType
         )
         sessions.insert(session, at: 0)
         selectedSessionId = session.id
@@ -495,7 +496,23 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 8500, inputTokens: 4200, outputTokens: 4300, toolCallCount: 2, errorCount: 0, apiCalls: 4)
         )
 
-        sessions = [session1, session2, session3, session4, session5, session6]
+        // Gemini session - running
+        let session7 = Session(
+            name: "Explain quantum computing",
+            status: .running,
+            agentType: .gemini,
+            startedAt: Date().addingTimeInterval(-120),
+            messages: [
+                Message(role: .user, content: "Explain the basic principles of quantum computing to a high school student", timestamp: Date().addingTimeInterval(-120)),
+                Message(role: .assistant, content: "Quantum computing is a fascinating field! Let's break it down into three key concepts: Qubits, Superposition, and Entanglement.", timestamp: Date().addingTimeInterval(-110), isStreaming: true)
+            ],
+            toolCalls: [
+                ToolCall(name: "Search", input: "quantum computing basics", output: "Quantum computing uses quantum mechanics...", startedAt: Date().addingTimeInterval(-115), completedAt: Date().addingTimeInterval(-112), status: .completed)
+            ],
+            metrics: SessionMetrics(totalTokens: 1200, inputTokens: 500, outputTokens: 700, toolCallCount: 1, errorCount: 0, apiCalls: 1)
+        )
+
+        sessions = [session1, session2, session3, session4, session5, session6, session7]
         selectedSessionId = session1.id
     }
 }

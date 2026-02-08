@@ -35,12 +35,27 @@ final class SessionStoreTests: XCTestCase {
         let initialCount = store.sessions.count
 
         // When
-        store.createNewSession()
+        store.createNewSession(agentType: .claudeCode)
 
         // Then
         XCTAssertEqual(store.sessions.count, initialCount + 1)
         XCTAssertEqual(store.sessions.first?.status, .waiting)
-        XCTAssertTrue(store.sessions.first?.name.contains("New Session") ?? false)
+        XCTAssertTrue(store.sessions.first?.name.contains("New Claude Code Session") ?? false)
+        XCTAssertEqual(store.sessions.first?.agentType, .claudeCode)
+    }
+
+    func testCreateNewGeminiSession() async throws {
+        // Given initial mock sessions
+        let initialCount = store.sessions.count
+
+        // When
+        store.createNewSession(agentType: .gemini)
+
+        // Then
+        XCTAssertEqual(store.sessions.count, initialCount + 1)
+        XCTAssertEqual(store.sessions.first?.status, .waiting)
+        XCTAssertTrue(store.sessions.first?.name.contains("New Gemini Session") ?? false)
+        XCTAssertEqual(store.sessions.first?.agentType, .gemini)
     }
 
     func testCreateSessionSelectsNewSession() async throws {
@@ -598,24 +613,28 @@ final class SessionModelTests: XCTestCase {
     func testAgentTypeProperties() {
         XCTAssertEqual(AgentType.claudeCode.icon, "brain")
         XCTAssertEqual(AgentType.codex.icon, "chevron.left.forwardslash.chevron.right")
+        XCTAssertEqual(AgentType.gemini.icon, "sparkles")
         XCTAssertEqual(AgentType.custom.icon, "cpu")
     }
 
     func testAgentTypeDisplayNames() {
         XCTAssertEqual(AgentType.claudeCode.displayName, "Claude Code")
         XCTAssertEqual(AgentType.codex.displayName, "Codex")
+        XCTAssertEqual(AgentType.gemini.displayName, "Gemini CLI")
         XCTAssertEqual(AgentType.custom.displayName, "Custom Agent")
     }
 
     func testAgentTypeDefaultPorts() {
         XCTAssertEqual(AgentType.claudeCode.defaultPort, 8080)
         XCTAssertEqual(AgentType.codex.defaultPort, 8081)
+        XCTAssertEqual(AgentType.gemini.defaultPort, 8082)
         XCTAssertEqual(AgentType.custom.defaultPort, 9000)
     }
 
     func testAgentTypeColors() {
         XCTAssertEqual(AgentType.claudeCode.color, "purple")
         XCTAssertEqual(AgentType.codex.color, "green")
+        XCTAssertEqual(AgentType.gemini.color, "indigo")
         XCTAssertEqual(AgentType.custom.color, "blue")
     }
 }

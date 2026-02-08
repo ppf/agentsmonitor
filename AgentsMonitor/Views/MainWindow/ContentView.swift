@@ -34,8 +34,32 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 FilterMenu()
 
-                Button {
-                    sessionStore.createNewSession()
+                Menu {
+                    Button {
+                        sessionStore.createNewSession(agentType: .claudeCode)
+                    } label: {
+                        Label("New Claude Code Session", systemImage: AgentType.claudeCode.icon)
+                    }
+
+                    Button {
+                        sessionStore.createNewSession(agentType: .codex)
+                    } label: {
+                        Label("New Codex Session", systemImage: AgentType.codex.icon)
+                    }
+
+                    Button {
+                        sessionStore.createNewSession(agentType: .gemini)
+                    } label: {
+                        Label("New Gemini Session", systemImage: AgentType.gemini.icon)
+                    }
+
+                    Divider()
+
+                    Button {
+                        sessionStore.createNewSession(agentType: .custom)
+                    } label: {
+                        Label("New Custom Session", systemImage: AgentType.custom.icon)
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }

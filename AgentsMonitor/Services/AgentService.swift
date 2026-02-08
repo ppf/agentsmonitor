@@ -89,6 +89,21 @@ actor AgentService: AgentServiceProtocol {
             )
         }
 
+        /// Configuration preset for Google Gemini agent
+        static var gemini: Config {
+            Config(
+                host: "localhost",
+                port: 8082,
+                path: "/ws/gemini",
+                useTLS: false,
+                apiKey: nil,
+                reconnectAttempts: 5,
+                reconnectDelay: 2.0,
+                pingInterval: 30.0,
+                agentType: .gemini
+            )
+        }
+
         /// Create config for a specific agent type
         static func forAgent(_ agentType: AgentType) -> Config {
             switch agentType {
@@ -96,6 +111,8 @@ actor AgentService: AgentServiceProtocol {
                 return .claudeCode
             case .codex:
                 return .codex
+            case .gemini:
+                return .gemini
             case .custom:
                 return .default
             }
@@ -292,8 +309,8 @@ actor AgentService: AgentServiceProtocol {
         case .sessionStarted:
             AppLogger.logSessionCreated(Session(name: "Session", status: .running))
         case .toolCallStarted:
-            if case .toolCall(let name, let input, _) = event.data {
-                let toolCall = ToolCall(name: name, input: input, status: .running)
+            if case .toolCall(let toolCallData) = event.data {
+                let toolCall = ToolCall(name: toolCallData.name, input: toolCallData.input, status: .running)
                 AppLogger.logToolCallStarted(toolCall, sessionId: event.sessionId)
             }
         case .error:
