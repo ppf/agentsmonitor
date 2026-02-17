@@ -12,10 +12,12 @@
 		AM004 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF004 /* Message.swift */; };
 		AM005 /* ToolCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF005 /* ToolCall.swift */; };
 		AM007 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF007 /* SessionStore.swift */; };
-		AM008 /* AgentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF008 /* AgentService.swift */; };
+		AM036 /* ClaudeSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF036 /* ClaudeSessionService.swift */; };
+		AM037 /* TokenCostCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF037 /* TokenCostCalculator.swift */; };
+		AM038 /* AnthropicUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF038 /* AnthropicUsageService.swift */; };
+		AM039 /* CodexSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF039 /* CodexSessionService.swift */; };
 		AM015 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF015 /* MenuBarView.swift */; };
 		AM018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AMF018 /* Assets.xcassets */; };
-		AM019 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF020 /* SessionPersistence.swift */; };
 		AM020 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF021 /* Logger.swift */; };
 		AM021 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF022 /* AppTheme.swift */; };
 		AM028 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = AMF029 /* Fonts */; };
@@ -49,11 +51,13 @@
 		AMF004 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		AMF005 /* ToolCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCall.swift; sourceTree = "<group>"; };
 		AMF007 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
-		AMF008 /* AgentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentService.swift; sourceTree = "<group>"; };
+		AMF036 /* ClaudeSessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSessionService.swift; sourceTree = "<group>"; };
+		AMF037 /* TokenCostCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCostCalculator.swift; sourceTree = "<group>"; };
+		AMF038 /* AnthropicUsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicUsageService.swift; sourceTree = "<group>"; };
+		AMF039 /* CodexSessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexSessionService.swift; sourceTree = "<group>"; };
 		AMF015 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		AMF018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AMF019 /* AgentsMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentsMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AMF020 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		AMF021 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		AMF022 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		AMF029 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
@@ -152,8 +156,10 @@
 		AMG008 /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				AMF008 /* AgentService.swift */,
-				AMF020 /* SessionPersistence.swift */,
+				AMF036 /* ClaudeSessionService.swift */,
+				AMF039 /* CodexSessionService.swift */,
+				AMF037 /* TokenCostCalculator.swift */,
+				AMF038 /* AnthropicUsageService.swift */,
 				AMF021 /* Logger.swift */,
 			);
 			path = Services;
@@ -318,11 +324,13 @@
 				AM005 /* ToolCall.swift in Sources */,
 				AM029 /* AppEnvironment.swift in Sources */,
 				AM007 /* SessionStore.swift in Sources */,
-				AM008 /* AgentService.swift in Sources */,
+				AM036 /* ClaudeSessionService.swift in Sources */,
+				AM037 /* TokenCostCalculator.swift in Sources */,
+				AM038 /* AnthropicUsageService.swift in Sources */,
+				AM039 /* CodexSessionService.swift in Sources */,
 				AM015 /* MenuBarView.swift in Sources */,
 				AM034 /* MenuBarMainView.swift in Sources */,
 				AM035 /* MenuBarSettingsView.swift in Sources */,
-				AM019 /* SessionPersistence.swift in Sources */,
 				AM020 /* Logger.swift in Sources */,
 				AM021 /* AppTheme.swift in Sources */,
 			);

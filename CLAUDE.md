@@ -40,38 +40,42 @@ This app uses Swift 5.9+ `@Observable` macro for state management. **Do not wrap
 @StateObject var sessionStore = SessionStore()
 ```
 
-**Key principle:** SessionStore is the single source of truth. All session mutations go through it, triggering UI updates automatically.
+**Key principle:** SessionStore is the single source of truth. All session state flows through it, triggering UI updates automatically.
 
 ### Data Flow Architecture
 ```
-AgentService (actor) → WebSocket events
-    ↓
-SessionStore (@Observable) → State mutations + persistence
-    ↓
-Views (@Environment) → Reactive UI updates
+ClaudeSessionService (actor) -> reads ~/.claude/projects/*/sessions-index.json
+    |
+SessionStore (@Observable) -> State + TokenCostCalculator + AnthropicUsageService
+    |
+Views (@Environment) -> Reactive UI with timer-based refresh
 ```
 
 **SessionStore responsibilities:**
-- Session CRUD operations
+- Session discovery via Claude Code session files
+- Token cost calculation and caching (keyed by fileMtime)
+- Usage limit fetching via Anthropic OAuth API
 - Aggregate stats (tokens, cost, runtime, average duration)
-- Message/ToolCall appending
-- Auto-persistence via SessionPersistence actor
 
 ### Dependency Injection Pattern
 SessionStore uses constructor injection for testability:
 
 ```swift
 // Production (in AgentsMonitorApp.swift)
-let sessionStore = SessionStore()
+let environment = AppEnvironment.current
+let sessionStore = SessionStore(environment: environment)
 
 // Testing (in SessionStoreTests.swift)
-let store = SessionStore(
-    agentService: MockAgentService(),
-    persistence: nil  // Avoid disk I/O, loads mock data
+let environment = AppEnvironment(
+    isUITesting: false,
+    isUnitTesting: true,
+    mockSessionCount: nil,
+    fixedNow: nil
 )
+let store = SessionStore(environment: environment)
 ```
 
-**Key insight:** Passing `nil` persistence triggers mock data loading. This is intentional for development/testing.
+**Key insight:** `AppEnvironment` controls test behavior. `isUnitTesting = true` loads mock data and skips disk I/O. `isUITesting = true` loads mock data with a fixed date for deterministic snapshots.
 
 ## Testing Patterns
 
@@ -81,62 +85,83 @@ let store = SessionStore(
 ```swift
 @MainActor
 final class SessionStoreTests: XCTestCase {
-    var sut: SessionStore!
+    var store: SessionStore!
 
     override func setUp() async throws {
-        sut = SessionStore(persistence: nil)  // Loads mock data
-        try await Task.sleep(for: .milliseconds(200))  // Allow mock load
+        let environment = AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: nil,
+            fixedNow: nil
+        )
+        store = SessionStore(environment: environment)
+        try await Task.sleep(nanoseconds: 200_000_000)  // Allow mock load
     }
 }
 ```
 
 ### Test Organization
-- **SessionStoreTests**: CRUD, computed properties, message/toolCall appending
+- **SessionStoreTests**: Selection, computed properties, error handling, loading state
 - **SessionStoreAggregateTests**: Aggregate stats (tokens, cost, runtime, averages)
 - **SessionStoreClearAllTests**: Clear all + aggregate reset verification
-- **SessionStoreMergeRaceTests**: Concurrent append during detail load
-- **Model tests**: SessionModelTests, ToolCallModelTests, MessageModelTests, SessionMetricsTests (incl. cost/modelName)
+- **Model tests**: SessionModelTests, ToolCallModelTests, MessageModelTests, SessionMetricsTests (incl. cost/modelName/contextWindow)
+- **AgentTypeDecodingTests**: Flexible decoding of agent type and session status variants
+- **TokenCostCalculatorTests**: JSONL parsing, cost calculation, model name formatting
 - **Pattern**: Create minimal fixtures in tests, verify state changes (not implementation)
 
-## Performance Optimizations
+## Services
 
-### Pagination Support
-SessionStore has pagination built-in (pageSize=50, hasMorePages flag). Currently unused but ready for large datasets.
-
-## WebSocket Integration
-
-### AgentService Architecture
-**Actor-based** for thread safety. Uses `async/await` throughout:
+### ClaudeSessionService
+**Actor-based** session discovery. Reads Claude Code's own session index files:
 
 ```swift
-actor AgentService: AgentServiceProtocol {
-    func connect() async throws { ... }
-    func send(_ command: AgentCommand) async throws { ... }
-    func events() -> AsyncStream<AgentEvent> { ... }
+actor ClaudeSessionService {
+    func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session]
 }
 ```
 
-**Event streaming pattern:**
+- Scans `~/.claude/projects/*/sessions-index.json` for session entries
+- Determines running status via file mtime heuristic: sessions modified within last 120s are "running", otherwise "completed"
+- Extracts session name from `summary` field, falling back to `firstPrompt` prefix, then short session ID
+- Supports filtering: `showAll` toggles active-only vs all sessions, `showSidechains` includes/excludes sidechain sessions
+
+### TokenCostCalculator
+**Synchronous** JSONL parser for cost calculation:
+
 ```swift
-// In views/stores
-for await event in agentService.events() {
-    switch event.data {
-    case .sessionStarted(let session): ...
-    case .messageReceived(let message): ...
-    }
+struct TokenCostCalculator {
+    static func calculate(jsonlPath: String) -> SessionTokenSummary?
 }
 ```
 
-### Command & Event Protocol
-**AgentCommand types:** pause, resume, cancel, retry, sendMessage, subscribe, unsubscribe
-**AgentEvent types:** sessionStarted, sessionEnded, messageReceived, messageStreaming, toolCallStarted, toolCallCompleted, toolCallFailed, metricsUpdated, error
+- Parses Claude Code JSONL conversation files (`~/.claude/projects/*/sessions/*.jsonl`)
+- Extracts `assistant` message entries with `usage` blocks (input, output, cache write, cache read tokens)
+- Calculates cost from built-in pricing table (Opus 4, Sonnet 4, Haiku 4), falls back to Sonnet pricing for unknown models
+- Returns `SessionTokenSummary` with token counts, cost, model name, API call count
 
-Both are `Codable` with custom encoding for flexible JSON structure.
+**Cost caching:** SessionStore caches results keyed by `jsonlPath` + `fileMtime`. Only recalculates when file changes.
 
-### Connection Management
-- Automatic reconnection: 5 attempts, 2s delay, exponential backoff
-- Ping/pong keepalive: 30s interval
-- Proper cleanup: Cancel receiveTask and pingTask on disconnect
+### AnthropicUsageService
+**Actor-based** usage limit fetcher:
+
+```swift
+actor AnthropicUsageService {
+    func fetchUsage() async throws -> AnthropicUsage
+}
+```
+
+- Reads OAuth credentials from macOS Keychain via `security` CLI (service: "Claude Code-credentials"), falling back to `~/.claude/.credentials.json`
+- Calls `https://api.anthropic.com/api/oauth/usage` with Bearer token
+- Returns `AnthropicUsage` with 5-hour window, 7-day window, 7-day Sonnet window, and extra usage data
+- Throws `UsageServiceError` (.noCredentials, .authExpired, .networkError, .parseError)
+
+## Data Source
+
+The app is **read-only** against Claude Code's own files. No app-owned persistence layer:
+
+- **Session index:** `~/.claude/projects/{project}/sessions-index.json`
+- **Conversation JSONL:** Referenced via `fullPath` in session entries
+- **OAuth credentials:** macOS Keychain or `~/.claude/.credentials.json`
 
 ## Theming System
 
@@ -157,38 +182,6 @@ Both are `Codable` with custom encoding for flexible JSON structure.
 - `Spacing`: small/medium/large/extraLarge constants
 - `CornerRadius`: small/medium/large values
 - `Animation`: fast/normal/slow durations
-
-## Persistence Layer
-
-### SessionPersistence Actor
-**Thread-safe disk I/O** to `~/Library/Application Support/AgentsMonitor/Sessions/`:
-
-```swift
-actor SessionPersistence {
-    static let shared = SessionPersistence()
-
-    func save(_ session: Session) async throws { ... }
-    func load(_ id: UUID) async throws -> Session { ... }
-    func loadAll() async throws -> [Session] { ... }
-}
-```
-
-**File format:** One JSON file per session (keyed by UUID)
-**Codable extension:** SessionPersistence.swift lines 118-207 extend Session/Message/ToolCall with custom encode/decode
-
-### Auto-Persistence Pattern
-SessionStore automatically persists after mutations:
-
-```swift
-func createNewSession() {
-    let session = Session(...)
-    sessions.insert(session, at: 0)
-
-    Task {
-        try? await persistence?.saveSession(session)  // Async, doesn't block UI
-    }
-}
-```
 
 ## Accessibility Requirements
 
@@ -218,12 +211,6 @@ Button { action() } label: {
 3. Add color mapping in `AppTheme.statusColors`
 4. Update `MenuBarMainView` to display new status
 
-### Adding a New AgentType
-1. Update `AgentType` enum with icon, displayName, defaultHost/Port/Path, color
-2. Add preset config in `AgentService.Config` static methods
-3. Update `MenuBarSettingsView` connection section if needed
-4. Add test session to `SessionStore.loadMockData()` if desired
-
 ### Adding a New Tool Call Icon
 Update `ToolCall.icon` computed property in `Models/ToolCall.swift`:
 ```swift
@@ -235,62 +222,26 @@ var icon: String {
 }
 ```
 
+### Adding a New Model to Pricing
+Update `TokenCostCalculator.pricingTable` and `formatModelName()` in `Services/TokenCostCalculator.swift`.
+
 ## Logging Strategy
 
-**Use Logger, not print():**
+**Use AppLogger, not print():**
 ```swift
-import Services
-
 // Structured logging
-Logger.log(.sessions, "Created session \(sessionID, privacy: .public)")
-Logger.error(.network, "Connection failed", file: #file, line: #line)
+AppLogger.logWarning("message", context: "ComponentName")
+AppLogger.logError(error, context: "ComponentName")
 
 // Performance timing
-Logger.measure("loadSessions") {
-    // ... expensive operation
-}
-
-await Logger.measureAsync("fetchData") {
-    // ... async operation
-}
+AppLogger.measure("loadSessions") { ... }
+await AppLogger.measureAsync("fetchData") { ... }
 ```
 
-**Categories:** sessions, network, persistence, errors, performance
+## Known Limitations
 
-## Memory Management
-
-### Weak References in Closures
-AgentService uses weak self to avoid retain cycles:
-
-```swift
-private func startPingTimer() {
-    pingTask = Task { [weak self] in
-        while !Task.isCancelled {
-            try? await self?.ping()
-            try? await Task.sleep(for: .seconds(30))
-        }
-    }
-}
-```
-
-### Task Cancellation
-Always cancel tasks in cleanup:
-
-```swift
-func disconnect() async {
-    receiveTask?.cancel()
-    pingTask?.cancel()
-    // ... close WebSocket
-}
-```
-
-## Known Incomplete Features
-
-1. **WebSocket connection:** AgentService is fully implemented but app loads mock data instead of connecting to real agent
-2. **Real event streaming:** SessionStore.refresh() reloads from disk, not from live WebSocket
-3. **Export functionality:** Buttons exist but only save JSON to disk (no sharing sheet)
-
-When implementing these, the architecture is ready - just wire up the AgentService connection in SessionStore initialization.
+1. **Running detection is heuristic-based:** Uses file mtime (120s threshold) since we can't reliably correlate OS processes to specific sessions
+2. **Token costs require JSONL parsing:** First load can be slow for sessions with large conversation files; mitigated by mtime-based caching
 
 ## App Architecture
 
@@ -298,17 +249,20 @@ This is a **menu-bar-only** macOS app (no main window, no Dock icon). The entire
 
 - `Info.plist` has `LSUIElement = true` (hides from Dock/Cmd-Tab)
 - `AgentsMonitorApp.swift` uses only `MenuBarExtra` scene (no `WindowGroup`)
-- `MenuBarView` is a page router: main ↔ settings
+- `MenuBarView` is a page router: main <-> settings
 - `MenuBarMainView`: expandable session rows + usage stats (aggregate tokens, cost, runtime)
 - `MenuBarSettingsView`: inline settings (General, Appearance, Connection)
 
 ## File Navigation Guide
 
 **App entry point:** `App/AgentsMonitorApp.swift` (MenuBarExtra-only, DI setup)
-**State management:** `ViewModels/SessionStore.swift` (single source of truth, aggregate stats)
-**WebSocket logic:** `Services/AgentService.swift` (actor-based, async/await)
-**Persistence:** `Services/SessionPersistence.swift` (actor, Codable extensions)
+**State management:** `ViewModels/SessionStore.swift` (single source of truth, aggregate stats, cost caching)
+**Session discovery:** `Services/ClaudeSessionService.swift` (actor, reads session-index.json files)
+**Token costs:** `Services/TokenCostCalculator.swift` (JSONL parser, pricing table)
+**Usage API:** `Services/AnthropicUsageService.swift` (actor, OAuth + Keychain)
+**Logging:** `Services/Logger.swift` (AppLogger)
 **Theme/styling:** `Theme/AppTheme.swift` (all colors, fonts, spacing)
+**Models:** `Models/Session.swift`, `Models/Message.swift`, `Models/ToolCall.swift`, `Models/AppEnvironment.swift`
 **Menu bar root:** `Views/MainWindow/MenuBarView.swift` (page router + shared components)
 **Main popover:** `Views/MenuBar/MenuBarMainView.swift` (sessions + usage stats)
 **Inline settings:** `Views/MenuBar/MenuBarSettingsView.swift` (General, Appearance, Connection)
