@@ -15,6 +15,7 @@
 		AM036 /* ClaudeSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF036 /* ClaudeSessionService.swift */; };
 		AM037 /* TokenCostCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF037 /* TokenCostCalculator.swift */; };
 		AM038 /* AnthropicUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF038 /* AnthropicUsageService.swift */; };
+		AM039 /* CodexSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF039 /* CodexSessionService.swift */; };
 		AM015 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF015 /* MenuBarView.swift */; };
 		AM018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AMF018 /* Assets.xcassets */; };
 		AM020 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF021 /* Logger.swift */; };
@@ -53,6 +54,7 @@
 		AMF036 /* ClaudeSessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSessionService.swift; sourceTree = "<group>"; };
 		AMF037 /* TokenCostCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCostCalculator.swift; sourceTree = "<group>"; };
 		AMF038 /* AnthropicUsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicUsageService.swift; sourceTree = "<group>"; };
+		AMF039 /* CodexSessionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexSessionService.swift; sourceTree = "<group>"; };
 		AMF015 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		AMF018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AMF019 /* AgentsMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentsMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -155,6 +157,7 @@
 			isa = PBXGroup;
 			children = (
 				AMF036 /* ClaudeSessionService.swift */,
+				AMF039 /* CodexSessionService.swift */,
 				AMF037 /* TokenCostCalculator.swift */,
 				AMF038 /* AnthropicUsageService.swift */,
 				AMF021 /* Logger.swift */,
@@ -324,6 +327,7 @@
 				AM036 /* ClaudeSessionService.swift in Sources */,
 				AM037 /* TokenCostCalculator.swift in Sources */,
 				AM038 /* AnthropicUsageService.swift in Sources */,
+				AM039 /* CodexSessionService.swift in Sources */,
 				AM015 /* MenuBarView.swift in Sources */,
 				AM034 /* MenuBarMainView.swift in Sources */,
 				AM035 /* MenuBarSettingsView.swift in Sources */,

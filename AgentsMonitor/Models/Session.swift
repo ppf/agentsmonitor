@@ -211,8 +211,15 @@ enum SessionStatus: String, CaseIterable, Codable {
 
 enum AgentType: String, CaseIterable, Codable {
     case claudeCode = "Claude Code"
+    case codex = "Codex"
 
-    var icon: String { "brain" }
+    var icon: String {
+        switch self {
+        case .claudeCode: return "brain"
+        case .codex: return "terminal.fill"
+        }
+    }
+
     var displayName: String { rawValue }
 
     init(from decoder: Decoder) throws {
@@ -228,8 +235,9 @@ enum AgentType: String, CaseIterable, Codable {
         switch normalized {
         case "claudecode", "claude", "anthropicclaude", "claudecli", "claudecodecli", "claudecodeagent":
             self = .claudeCode
+        case "codex", "openaicodex", "codexcli":
+            self = .codex
         default:
-            // Default to claudeCode for unknown types
             self = .claudeCode
         }
     }

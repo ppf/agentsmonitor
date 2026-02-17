@@ -997,4 +997,12 @@ final class AnthropicUsageParsingTests: XCTestCase {
         XCTAssertEqual(window.utilization, 1.0)
         XCTAssertEqual(window.resetsAt, "2024-12-31T23:59:59Z")
     }
+
+    func testNormalizeUtilizationConvertsPercentToFraction() {
+        XCTAssertEqual(AnthropicUsageService.normalizedUtilization(10.0), 0.10, accuracy: 0.0001)
+    }
+
+    func testNormalizeUtilizationKeepsFractionValue() {
+        XCTAssertEqual(AnthropicUsageService.normalizedUtilization(0.42), 0.42, accuracy: 0.0001)
+    }
 }

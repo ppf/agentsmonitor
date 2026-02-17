@@ -143,12 +143,13 @@ struct MenuBarMainView: View {
     }
 
     private func usageBar(label: String, utilization: Double, resetsAt: String?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let clampedUtilization = min(max(utilization, 0), 1)
+        return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label)
                     .font(.caption)
                 Spacer()
-                Text("\(Int(utilization * 100))%")
+                Text("\(Int((utilization * 100).rounded()))%")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(utilizationColor(utilization))
@@ -164,7 +165,7 @@ struct MenuBarMainView: View {
                         .fill(Color.gray.opacity(0.2))
                     RoundedRectangle(cornerRadius: 2)
                         .fill(utilizationColor(utilization))
-                        .frame(width: max(geo.size.width * utilization, 0))
+                        .frame(width: geo.size.width * clampedUtilization)
                 }
             }
             .frame(height: 4)
@@ -267,9 +268,18 @@ struct MenuBarExpandableSessionRow: View {
                         .accessibilityIdentifier("menuBar.session.status")
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(session.name)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("menuBar.session.name")
+                        HStack(spacing: 4) {
+                            Text(session.name)
+                                .lineLimit(1)
+                                .accessibilityIdentifier("menuBar.session.name")
+                            Text(session.agentType == .codex ? "CX" : "CC")
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(session.agentType == .codex ? .orange : .blue)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background((session.agentType == .codex ? Color.orange : Color.blue).opacity(0.12))
+                                .cornerRadius(3)
+                        }
 
                         HStack(spacing: 4) {
                             if let project = session.shortProjectName {

@@ -17,6 +17,7 @@ final class SessionStore {
     // MARK: - Dependencies
 
     private let sessionService: ClaudeSessionService
+    private let codexService: CodexSessionService
     private let usageService: any UsageServiceProviding
     private let environment: AppEnvironment
 
@@ -32,10 +33,12 @@ final class SessionStore {
 
     init(
         sessionService: ClaudeSessionService = ClaudeSessionService(),
+        codexService: CodexSessionService = CodexSessionService(),
         usageService: any UsageServiceProviding = AnthropicUsageService(),
         environment: AppEnvironment = .current
     ) {
         self.sessionService = sessionService
+        self.codexService = codexService
         self.usageService = usageService
         self.environment = environment
 
@@ -166,7 +169,11 @@ final class SessionStore {
             let showAll = UserDefaults.standard.bool(forKey: "showAllSessions")
             let showSidechains = UserDefaults.standard.bool(forKey: "showSidechains")
 
-            var discovered = await sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+            async let claudeSessions = sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+            async let codexSessions = codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+
+            var discovered = await claudeSessions + codexSessions
+            discovered.sort { $0.startedAt > $1.startedAt }
 
             // Apply cached costs immediately
             for i in discovered.indices {
@@ -288,7 +295,16 @@ final class SessionStore {
             metrics: SessionMetrics(totalTokens: 0, inputTokens: 0, outputTokens: 0, toolCallCount: 0, errorCount: 0, apiCalls: 0)
         )
 
-        var baseSessions = [session1, session2, session3]
+        let session4 = Session(
+            name: "Refactor API endpoints",
+            status: .completed,
+            agentType: .codex,
+            startedAt: now.addingTimeInterval(-1800),
+            endedAt: now.addingTimeInterval(-900),
+            metrics: SessionMetrics(modelName: "gpt-5.3-codex")
+        )
+
+        var baseSessions = [session1, session2, session3, session4]
 
         if let sessionCount, sessionCount > baseSessions.count {
             let extraCount = sessionCount - baseSessions.count

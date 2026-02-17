@@ -37,6 +37,32 @@ struct ClaudeSessionEntry: Decodable {
         return "Session \(shortId)"
     }
 
+    init(
+        sessionId: String,
+        fullPath: String,
+        fileMtime: Int64,
+        firstPrompt: String?,
+        summary: String?,
+        messageCount: Int,
+        created: String,
+        modified: String,
+        gitBranch: String?,
+        projectPath: String?,
+        isSidechain: Bool
+    ) {
+        self.sessionId = sessionId
+        self.fullPath = fullPath
+        self.fileMtime = fileMtime
+        self.firstPrompt = firstPrompt
+        self.summary = summary
+        self.messageCount = messageCount
+        self.created = created
+        self.modified = modified
+        self.gitBranch = gitBranch
+        self.projectPath = projectPath
+        self.isSidechain = isSidechain
+    }
+
     private static func parseISO8601(_ string: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -62,6 +88,7 @@ actor ClaudeSessionService {
         guard fileManager.fileExists(atPath: projectsDir.path) else { return [] }
 
         var allEntries: [ClaudeSessionEntry] = []
+        var indexedIds = Set<String>()
 
         do {
             let projectDirs = try fileManager.contentsOfDirectory(
@@ -72,14 +99,23 @@ actor ClaudeSessionService {
 
             for dir in projectDirs {
                 let indexFile = dir.appendingPathComponent("sessions-index.json")
-                guard fileManager.fileExists(atPath: indexFile.path) else { continue }
+                if fileManager.fileExists(atPath: indexFile.path) {
+                    do {
+                        let data = try Data(contentsOf: indexFile)
+                        let index = try JSONDecoder().decode(ClaudeSessionIndex.self, from: data)
+                        allEntries.append(contentsOf: index.entries)
+                        for entry in index.entries {
+                            indexedIds.insert(entry.sessionId)
+                        }
+                    } catch {
+                        AppLogger.logWarning("Failed to parse \(indexFile.path): \(error.localizedDescription)", context: "ClaudeSessionService")
+                    }
+                }
 
-                do {
-                    let data = try Data(contentsOf: indexFile)
-                    let index = try JSONDecoder().decode(ClaudeSessionIndex.self, from: data)
-                    allEntries.append(contentsOf: index.entries)
-                } catch {
-                    AppLogger.logWarning("Failed to parse \(indexFile.path): \(error.localizedDescription)", context: "ClaudeSessionService")
+                let jsonlEntries = discoverFromJSONL(in: dir, excluding: indexedIds)
+                allEntries.append(contentsOf: jsonlEntries)
+                for entry in jsonlEntries {
+                    indexedIds.insert(entry.sessionId)
                 }
             }
         } catch {
@@ -137,6 +173,129 @@ actor ClaudeSessionService {
 
         return sessions
     }
+
+    // MARK: - JSONL Fallback Discovery
+
+    private func discoverFromJSONL(in projectDir: URL, excluding indexedIds: Set<String>) -> [ClaudeSessionEntry] {
+        let contents: [URL]
+        do {
+            contents = try fileManager.contentsOfDirectory(
+                at: projectDir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            return []
+        }
+
+        let jsonlFiles = contents.filter { $0.pathExtension == "jsonl" }
+        var entries: [ClaudeSessionEntry] = []
+
+        for file in jsonlFiles {
+            let sessionId = file.deletingPathExtension().lastPathComponent
+            guard !indexedIds.contains(sessionId) else { continue }
+            guard UUID(uuidString: sessionId) != nil else { continue }
+
+            guard let entry = parseJSONLMetadata(file: file, sessionId: sessionId, projectDir: projectDir) else {
+                continue
+            }
+            entries.append(entry)
+        }
+
+        return entries
+    }
+
+    private func parseJSONLMetadata(file: URL, sessionId: String, projectDir: URL) -> ClaudeSessionEntry? {
+        guard let handle = FileHandle(forReadingAtPath: file.path) else { return nil }
+        defer { handle.closeFile() }
+
+        guard let chunk = handle.readData(ofLength: 32_768) as Data?,
+              !chunk.isEmpty else { return nil }
+
+        guard let text = String(data: chunk, encoding: .utf8) else { return nil }
+
+        let lines = text.components(separatedBy: "\n").prefix(30)
+
+        var cwd: String?
+        var gitBranch: String?
+        var isSidechain = false
+        var firstTimestamp: String?
+        var firstPrompt: String?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                continue
+            }
+
+            if firstTimestamp == nil, let ts = json["timestamp"] as? String {
+                firstTimestamp = ts
+            }
+
+            if cwd == nil, let c = json["cwd"] as? String {
+                cwd = c
+            }
+
+            if gitBranch == nil, let b = json["gitBranch"] as? String {
+                gitBranch = b
+            }
+
+            if let sc = json["isSidechain"] as? Bool, sc {
+                isSidechain = true
+            }
+
+            if firstPrompt == nil, let type = json["type"] as? String, type == "user" {
+                if let message = json["message"] as? [String: Any] {
+                    firstPrompt = extractUserContent(from: message)
+                }
+            }
+        }
+
+        guard let timestamp = firstTimestamp else { return nil }
+
+        // File mtime
+        let attrs = try? fileManager.attributesOfItem(atPath: file.path)
+        let mtime: Date = (attrs?[.modificationDate] as? Date) ?? Date()
+        let fileMtime = Int64(mtime.timeIntervalSince1970 * 1000)
+
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let modifiedString = isoFormatter.string(from: mtime)
+
+        return ClaudeSessionEntry(
+            sessionId: sessionId,
+            fullPath: file.path,
+            fileMtime: fileMtime,
+            firstPrompt: firstPrompt,
+            summary: nil,
+            messageCount: 0,
+            created: timestamp,
+            modified: modifiedString,
+            gitBranch: gitBranch,
+            projectPath: cwd,
+            isSidechain: isSidechain
+        )
+    }
+
+    private func extractUserContent(from message: [String: Any]) -> String? {
+        if let content = message["content"] as? String {
+            return content.hasPrefix("<") ? nil : content
+        }
+
+        if let contentArray = message["content"] as? [[String: Any]] {
+            for item in contentArray {
+                if let text = item["text"] as? String {
+                    return text.hasPrefix("<") ? nil : text
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - Helpers
 
     private func isRecentlyModified(entry: ClaudeSessionEntry) -> Bool {
         // fileMtime is milliseconds since epoch

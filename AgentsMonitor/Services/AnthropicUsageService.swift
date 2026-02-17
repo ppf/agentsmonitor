@@ -167,7 +167,8 @@ actor AnthropicUsageService: UsageServiceProviding {
 
         func parseWindow(_ key: String) -> AnthropicUsage.UsageWindow? {
             guard let window = json[key] as? [String: Any] else { return nil }
-            let utilization = window["utilization"] as? Double ?? 0
+            let rawUtilization = (window["utilization"] as? NSNumber)?.doubleValue ?? 0
+            let utilization = Self.normalizedUtilization(rawUtilization)
             let resetsAt = window["resetsAt"] as? String ?? window["resets_at"] as? String
             return AnthropicUsage.UsageWindow(utilization: utilization, resetsAt: resetsAt)
         }
@@ -196,6 +197,13 @@ actor AnthropicUsageService: UsageServiceProviding {
             sevenDaySonnet: sevenDaySonnet,
             extraUsage: parseExtra()
         )
+    }
+
+    static func normalizedUtilization(_ rawValue: Double) -> Double {
+        guard rawValue.isFinite else { return 0 }
+        if rawValue <= 0 { return 0 }
+        if rawValue > 1 { return rawValue / 100.0 }
+        return rawValue
     }
 
     private static func realHomeDirectory() -> String {
