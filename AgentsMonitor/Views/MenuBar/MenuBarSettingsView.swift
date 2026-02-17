@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct MenuBarSettingsView: View {
     @Environment(SessionStore.self) private var sessionStore
@@ -7,15 +6,10 @@ struct MenuBarSettingsView: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("refreshInterval") private var refreshInterval: Double = 5.0
     @AppStorage("appearance") private var appearance: String = "system"
-    @AppStorage("agentHost") private var agentHost = "localhost"
-    @AppStorage("agentPort") private var agentPort = "8080"
+    @AppStorage("showAllSessions") private var showAllSessions = true
+    @AppStorage("showSidechains") private var showSidechains = false
 
     let navigateBack: () -> Void
-
-    @State private var isConnected = false
-    @State private var isConnecting = false
-    @State private var showingClearConfirmation = false
-    @State private var showingExportPanel = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -46,6 +40,8 @@ struct MenuBarSettingsView: View {
                     settingsSection("GENERAL") {
                         Toggle("Launch at login", isOn: $launchAtLogin)
                         Toggle("Notifications", isOn: $notificationsEnabled)
+                        Toggle("Show all projects", isOn: $showAllSessions)
+                        Toggle("Show sidechains", isOn: $showSidechains)
 
                         HStack {
                             Text("Auto-refresh")
@@ -59,18 +55,6 @@ struct MenuBarSettingsView: View {
                             }
                             .labelsHidden()
                             .frame(width: 100)
-                        }
-
-                        HStack(spacing: 8) {
-                            Button("Clear History") {
-                                showingClearConfirmation = true
-                            }
-                            .accessibilityIdentifier("menuBar.settings.clearHistory")
-
-                            Button("Export Sessions") {
-                                showingExportPanel = true
-                            }
-                            .accessibilityIdentifier("menuBar.settings.export")
                         }
                     }
 
@@ -89,70 +73,11 @@ struct MenuBarSettingsView: View {
                             .frame(width: 180)
                         }
                     }
-
-                    // Connection
-                    settingsSection("CONNECTION") {
-                        HStack {
-                            Text("Host")
-                            Spacer()
-                            TextField("localhost", text: $agentHost)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 140)
-                        }
-                        HStack {
-                            Text("Port")
-                            Spacer()
-                            TextField("8080", text: $agentPort)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
-                        }
-                        HStack {
-                            Circle()
-                                .fill(isConnected ? .green : .red)
-                                .frame(width: 8, height: 8)
-                            Text(isConnected ? "Connected" : "Disconnected")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button(isConnected ? "Disconnect" : "Connect") {
-                                if isConnected {
-                                    isConnected = false
-                                } else {
-                                    isConnecting = true
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                        isConnecting = false
-                                        isConnected = true
-                                    }
-                                }
-                            }
-                            .disabled(isConnecting)
-                            .accessibilityIdentifier("menuBar.settings.connect")
-
-                            if isConnecting {
-                                ProgressView()
-                                    .controlSize(.mini)
-                            }
-                        }
-                    }
                 }
                 .padding()
             }
         }
         .frame(width: 300)
-        .confirmationDialog("Clear Session History?", isPresented: $showingClearConfirmation) {
-            Button("Clear All", role: .destructive) {
-                sessionStore.clearAllSessions()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will permanently delete all session history.")
-        }
-        .fileExporter(
-            isPresented: $showingExportPanel,
-            document: AllSessionsDocument(sessions: sessionStore.sessions),
-            contentType: .json,
-            defaultFilename: "sessions-export-\(Date().ISO8601Format()).json"
-        ) { _ in }
         .accessibilityIdentifier("menuBar.settings.view")
     }
 
@@ -165,23 +90,5 @@ struct MenuBarSettingsView: View {
                 content()
             }
         }
-    }
-}
-
-struct AllSessionsDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-
-    let sessions: [Session]
-
-    init(sessions: [Session]) { self.sessions = sessions }
-
-    init(configuration: ReadConfiguration) throws { sessions = [] }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(sessions)
-        return FileWrapper(regularFileWithContents: data)
     }
 }
