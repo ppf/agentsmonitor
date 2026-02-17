@@ -18,6 +18,13 @@ struct TokenCostCalculator {
         let outputPerMillion: Double
     }
 
+    private struct TokenTotals {
+        var inputTokens: Int = 0
+        var outputTokens: Int = 0
+        var cacheWriteTokens: Int = 0
+        var cacheReadTokens: Int = 0
+    }
+
     private static let pricingTable: [(prefix: String, pricing: ModelPricing)] = [
         ("claude-opus-4", ModelPricing(inputPerMillion: 15.0, cacheWritePerMillion: 18.75, cacheReadPerMillion: 1.50, outputPerMillion: 75.0)),
         ("claude-sonnet-4", ModelPricing(inputPerMillion: 3.0, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.30, outputPerMillion: 15.0)),
@@ -35,6 +42,7 @@ struct TokenCostCalculator {
         var totalCacheWrite = 0
         var totalCacheRead = 0
         var modelCounts: [String: Int] = [:]
+        var modelTokenTotals: [String: TokenTotals] = [:]
         var apiCalls = 0
 
         for line in content.split(separator: "\n") {
@@ -48,33 +56,41 @@ struct TokenCostCalculator {
             guard let usage = message["usage"] as? [String: Any] else { continue }
 
             apiCalls += 1
+            let input = usage["input_tokens"] as? Int ?? 0
+            let output = usage["output_tokens"] as? Int ?? 0
+            let cacheWrite = usage["cache_creation_input_tokens"] as? Int ?? 0
+            let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
+            let model = message["model"] as? String ?? ""
 
-            if let input = usage["input_tokens"] as? Int {
-                totalInput += input
-            }
-            if let output = usage["output_tokens"] as? Int {
-                totalOutput += output
-            }
-            if let cacheWrite = usage["cache_creation_input_tokens"] as? Int {
-                totalCacheWrite += cacheWrite
-            }
-            if let cacheRead = usage["cache_read_input_tokens"] as? Int {
-                totalCacheRead += cacheRead
-            }
+            totalInput += input
+            totalOutput += output
+            totalCacheWrite += cacheWrite
+            totalCacheRead += cacheRead
 
-            if let model = message["model"] as? String {
+            if !model.isEmpty {
                 modelCounts[model, default: 0] += 1
             }
+
+            var totals = modelTokenTotals[model, default: TokenTotals()]
+            totals.inputTokens += input
+            totals.outputTokens += output
+            totals.cacheWriteTokens += cacheWrite
+            totals.cacheReadTokens += cacheRead
+            modelTokenTotals[model] = totals
         }
 
         let primaryModel = modelCounts.max(by: { $0.value < $1.value })?.key ?? ""
-        let cost = calculateCost(
-            model: primaryModel,
-            inputTokens: totalInput,
-            outputTokens: totalOutput,
-            cacheWriteTokens: totalCacheWrite,
-            cacheReadTokens: totalCacheRead
-        )
+        let cost = modelTokenTotals.reduce(into: 0.0) { partial, item in
+            let model = item.key
+            let totals = item.value
+            partial += calculateCost(
+                model: model,
+                inputTokens: totals.inputTokens,
+                outputTokens: totals.outputTokens,
+                cacheWriteTokens: totals.cacheWriteTokens,
+                cacheReadTokens: totals.cacheReadTokens
+            )
+        }
 
         return SessionTokenSummary(
             inputTokens: totalInput,

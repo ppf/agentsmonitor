@@ -8,6 +8,7 @@ struct MenuBarMainView: View {
     let navigateToSettings: () -> Void
 
     @State private var expandedSessionId: UUID?
+    private let usageRefreshInterval: Double = 60.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +54,7 @@ struct MenuBarMainView: View {
             VStack(spacing: 0) {
                 MenuBarButton(title: "Refresh", icon: "arrow.clockwise", identifier: "menuBar.action.refresh") {
                     Task {
-                        await sessionStore.refresh()
+                        await sessionStore.refreshAll()
                     }
                 }
 
@@ -74,6 +75,13 @@ struct MenuBarMainView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(refreshInterval))
                 await sessionStore.refresh()
+            }
+        }
+        .task(id: usageRefreshInterval) {
+            guard usageRefreshInterval > 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(usageRefreshInterval))
+                await sessionStore.fetchUsageData()
             }
         }
         .accessibilityIdentifier("menuBar.view")

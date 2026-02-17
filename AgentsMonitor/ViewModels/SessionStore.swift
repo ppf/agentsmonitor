@@ -17,7 +17,7 @@ final class SessionStore {
     // MARK: - Dependencies
 
     private let sessionService: ClaudeSessionService
-    private let usageService: AnthropicUsageService
+    private let usageService: any UsageServiceProviding
     private let environment: AppEnvironment
 
     // Token cost cache: jsonlPath → (mtime, summary)
@@ -32,7 +32,7 @@ final class SessionStore {
 
     init(
         sessionService: ClaudeSessionService = ClaudeSessionService(),
-        usageService: AnthropicUsageService = AnthropicUsageService(),
+        usageService: any UsageServiceProviding = AnthropicUsageService(),
         environment: AppEnvironment = .current
     ) {
         self.sessionService = sessionService
@@ -139,6 +139,11 @@ final class SessionStore {
 
     @MainActor
     func refresh() async {
+        await loadSessions()
+    }
+
+    @MainActor
+    func refreshAll() async {
         async let sessionsTask: () = loadSessions()
         async let usageTask: () = fetchUsageData()
         _ = await (sessionsTask, usageTask)
@@ -252,9 +257,7 @@ final class SessionStore {
             return
         }
 
-        async let sessionsTask: () = loadSessions()
-        async let usageTask: () = fetchUsageData()
-        _ = await (sessionsTask, usageTask)
+        await refreshAll()
     }
 
     #if DEBUG

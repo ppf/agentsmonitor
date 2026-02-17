@@ -33,7 +33,11 @@ enum UsageServiceError: LocalizedError {
     }
 }
 
-actor AnthropicUsageService {
+protocol UsageServiceProviding: Sendable {
+    func fetchUsage() async throws -> AnthropicUsage
+}
+
+actor AnthropicUsageService: UsageServiceProviding {
     private struct OAuthCredentials {
         let accessToken: String
         let expiresAt: Int64

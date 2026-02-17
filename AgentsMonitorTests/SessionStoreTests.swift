@@ -81,6 +81,79 @@ final class SessionStoreTests: XCTestCase {
     }
 }
 
+actor UsageServiceSpy: UsageServiceProviding {
+    private var fetchCount = 0
+    private let result: Result<AnthropicUsage, Error>
+
+    init(result: Result<AnthropicUsage, Error>) {
+        self.result = result
+    }
+
+    func fetchUsage() async throws -> AnthropicUsage {
+        fetchCount += 1
+        return try result.get()
+    }
+
+    func currentFetchCount() -> Int {
+        fetchCount
+    }
+}
+
+// MARK: - Usage Refresh Tests
+
+@MainActor
+final class SessionStoreUsageRefreshTests: XCTestCase {
+
+    func testRefreshOnlyLoadsSessions() async throws {
+        let usage = AnthropicUsage(
+            fiveHour: .init(utilization: 0.25, resetsAt: nil),
+            sevenDay: .init(utilization: 0.40, resetsAt: nil),
+            sevenDaySonnet: nil,
+            extraUsage: nil
+        )
+        let spy = UsageServiceSpy(result: .success(usage))
+        let environment = AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: nil,
+            fixedNow: nil
+        )
+        let store = SessionStore(usageService: spy, environment: environment)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        await store.refresh()
+
+        let fetchCount = await spy.currentFetchCount()
+        XCTAssertEqual(fetchCount, 0)
+    }
+
+    func testRefreshAllFetchesUsageData() async throws {
+        let usage = AnthropicUsage(
+            fiveHour: .init(utilization: 0.25, resetsAt: nil),
+            sevenDay: .init(utilization: 0.40, resetsAt: nil),
+            sevenDaySonnet: nil,
+            extraUsage: nil
+        )
+        let spy = UsageServiceSpy(result: .success(usage))
+        let environment = AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: nil,
+            fixedNow: nil
+        )
+        let store = SessionStore(usageService: spy, environment: environment)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        await store.refreshAll()
+
+        let fetchCount = await spy.currentFetchCount()
+        XCTAssertEqual(fetchCount, 1)
+        let utilization = store.usageData?.fiveHour.utilization
+        XCTAssertNotNil(utilization)
+        XCTAssertEqual(utilization ?? 0, 0.25, accuracy: 0.0001)
+    }
+}
+
 // MARK: - Aggregate Stats Tests
 
 @MainActor
@@ -594,6 +667,25 @@ final class TokenCostCalculatorTests: XCTestCase {
         XCTAssertEqual(summary?.inputTokens, 1000)
         XCTAssertEqual(summary?.outputTokens, 500)
         XCTAssertEqual(summary?.apiCalls, 3)
+    }
+
+    func testMixedModelsArePricedPerModel() {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("test_mixed_\(UUID().uuidString).jsonl")
+
+        let jsonl = [
+            #"{"type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            #"{"type":"assistant","message":{"model":"claude-opus-4-20250929","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            #"{"type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ].joined(separator: "\n")
+
+        try? jsonl.data(using: .utf8)?.write(to: testFile)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let summary = TokenCostCalculator.calculate(jsonlPath: testFile.path)
+        XCTAssertNotNil(summary)
+        // Sonnet 1M input ($3) + Opus 1M input ($15) = $18
+        XCTAssertEqual(summary?.cost ?? 0, 18.0, accuracy: 0.001)
     }
 
     func testUnknownModelFallsBackToSonnetPricing() {
