@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+enum SessionSourceTab: String, CaseIterable, Identifiable {
+    case all
+    case codex
+    case claudeCode
+
+    var id: Self { self }
+}
+
 @Observable
 final class SessionStore {
     // MARK: - Published State
@@ -111,7 +119,14 @@ final class SessionStore {
     }
 
     var formattedAggregateTokens: String {
-        let total = aggregateTokens
+        Self.formatTokenCount(aggregateTokens)
+    }
+
+    var formattedAggregateCost: String {
+        Self.formatCost(aggregateCost)
+    }
+
+    static func formatTokenCount(_ total: Int) -> String {
         if total >= 1_000_000 {
             return String(format: "%.1fM", Double(total) / 1_000_000)
         } else if total >= 1_000 {
@@ -120,8 +135,8 @@ final class SessionStore {
         return "\(total)"
     }
 
-    var formattedAggregateCost: String {
-        aggregateCost > 0 ? String(format: "$%.2f", aggregateCost) : "--"
+    static func formatCost(_ total: Double) -> String {
+        total > 0 ? String(format: "$%.2f", total) : "--"
     }
 
     var formattedTotalRuntime: String {
@@ -143,6 +158,35 @@ final class SessionStore {
             formatter.allowedUnits = [.hour, .minute]
         }
         return formatter.string(from: interval) ?? "0s"
+    }
+
+    static func boolPreference(forKey key: String, defaultValue: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.bool(forKey: key)
+    }
+
+    func visibleSessions(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> [Session] {
+        let enabledSessions = sessions.filter { session in
+            switch session.agentType {
+            case .codex:
+                codexEnabled
+            case .claudeCode:
+                claudeCodeEnabled
+            }
+        }
+
+        switch tab {
+        case .all:
+            return enabledSessions
+        case .codex:
+            return enabledSessions.filter { $0.agentType == .codex }
+        case .claudeCode:
+            return enabledSessions.filter { $0.agentType == .claudeCode }
+        }
     }
 
     // MARK: - Session Management
@@ -186,15 +230,26 @@ final class SessionStore {
         error = nil
 
         await AppLogger.measureAsync("load sessions") {
-            let showAll = !UserDefaults.standard.bool(forKey: "activeOnly")
-            let showSidechains = UserDefaults.standard.bool(forKey: "showSidechains")
+            let defaults = UserDefaults.standard
+            let showAll = !defaults.bool(forKey: "activeOnly")
+            let showSidechains = defaults.bool(forKey: "showSidechains")
+            let codexEnabled = Self.boolPreference(forKey: "codexEnabled", defaultValue: true, defaults: defaults)
+            let claudeCodeEnabled = Self.boolPreference(forKey: "claudeCodeEnabled", defaultValue: true, defaults: defaults)
 
-            async let claudeSessions = sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
-            async let codexSessions = codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
-            async let codexLimits = codexService.fetchRateLimits()
+            if !codexEnabled { codexUsage = nil }
 
-            var discovered = await claudeSessions + codexSessions
-            codexUsage = await codexLimits
+            async let claudeSessionsTask: [Session] = claudeCodeEnabled
+                ? sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                : []
+            async let codexSessionsTask: [Session] = codexEnabled
+                ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                : []
+            async let codexLimitsTask: CodexRateLimits? = codexEnabled
+                ? codexService.fetchRateLimits()
+                : nil
+
+            var discovered = await claudeSessionsTask + codexSessionsTask
+            codexUsage = await codexLimitsTask
             discovered.sort { $0.startedAt > $1.startedAt }
 
             // Apply cached costs immediately
@@ -219,6 +274,10 @@ final class SessionStore {
 
         // Calculate uncached costs in background, update sessions incrementally
         costCalculationTask?.cancel()
+        guard !sessions.isEmpty else {
+            costCalculationTask = nil
+            return
+        }
         costCalculationTask = Task.detached(priority: .utility) {
             let sessionMeta: [(id: UUID, jsonlPath: String, mtime: Int64, agentType: AgentType)] = await MainActor.run {
                 self.sessions.compactMap { session in

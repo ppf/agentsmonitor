@@ -11,7 +11,9 @@ struct AgentsMonitorApp: App {
             "activeOnly": false,
             "showSidechains": false,
             "refreshInterval": 5.0,
-            "appearance": "system"
+            "appearance": "system",
+            "codexEnabled": true,
+            "claudeCodeEnabled": true
         ])
         let environment = AppEnvironment.current
         self.appEnvironment = environment

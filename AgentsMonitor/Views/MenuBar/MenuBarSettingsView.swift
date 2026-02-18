@@ -8,6 +8,8 @@ struct MenuBarSettingsView: View {
     @AppStorage("appearance") private var appearance: String = "system"
     @AppStorage("activeOnly") private var activeOnly = false
     @AppStorage("showSidechains") private var showSidechains = false
+    @AppStorage("codexEnabled") private var codexEnabled = true
+    @AppStorage("claudeCodeEnabled") private var claudeCodeEnabled = true
 
     let navigateBack: () -> Void
 
@@ -42,6 +44,14 @@ struct MenuBarSettingsView: View {
                         Toggle("Notifications", isOn: $notificationsEnabled)
                         Toggle("Active only", isOn: $activeOnly)
                         Toggle("Show sidechains", isOn: $showSidechains)
+                        Toggle("Enable Codex", isOn: $codexEnabled)
+                            .accessibilityLabel("Enable Codex")
+                            .accessibilityHint("Shows Codex sessions and refreshes Codex data when enabled")
+                            .accessibilityIdentifier("menuBar.settings.enableCodex")
+                        Toggle("Enable Claude Code", isOn: $claudeCodeEnabled)
+                            .accessibilityLabel("Enable Claude Code")
+                            .accessibilityHint("Shows Claude Code sessions and refreshes Claude data when enabled")
+                            .accessibilityIdentifier("menuBar.settings.enableClaudeCode")
 
                         HStack {
                             Text("Auto-refresh")
@@ -78,6 +88,12 @@ struct MenuBarSettingsView: View {
             }
         }
         .frame(width: 300)
+        .onChange(of: codexEnabled) { _, _ in
+            refreshSessions()
+        }
+        .onChange(of: claudeCodeEnabled) { _, _ in
+            refreshSessions()
+        }
         .accessibilityIdentifier("menuBar.settings.view")
     }
 
@@ -89,6 +105,12 @@ struct MenuBarSettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 content()
             }
+        }
+    }
+
+    private func refreshSessions() {
+        Task {
+            await sessionStore.refresh()
         }
     }
 }

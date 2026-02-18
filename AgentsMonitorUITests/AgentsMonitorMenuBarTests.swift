@@ -9,7 +9,11 @@ final class AgentsMonitorMenuBarTests: XCTestCase {
 
     func testMenuBarExtraContents() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"]
+        app.launchArguments = [
+            "--ui-testing",
+            "-codexEnabled", "YES",
+            "-claudeCodeEnabled", "YES"
+        ]
         app.launch()
 
         var statusItem = app.menuBars.statusItems["menuBar.statusItem"]
@@ -37,8 +41,32 @@ final class AgentsMonitorMenuBarTests: XCTestCase {
         let sessionNames = app.staticTexts.matching(identifier: "menuBar.session.name")
         XCTAssertTrue(sessionRows.count > 0 || sessionNames.count > 0)
 
+        XCTAssertTrue(app.buttons["menuBar.tab.all"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["menuBar.tab.codex"].exists)
+        XCTAssertTrue(app.buttons["menuBar.tab.claudeCode"].exists)
+
         XCTAssertTrue(app.buttons["menuBar.action.refresh"].exists)
         XCTAssertTrue(app.buttons["menuBar.action.settings"].exists)
+        app.buttons["menuBar.action.settings"].click()
+
+        let settingsView = app.otherElements["menuBar.settings.view"]
+        XCTAssertTrue(settingsView.waitForExistence(timeout: 2))
+
+        let codexToggle = app.descendants(matching: .any)["menuBar.settings.enableCodex"]
+        let claudeToggle = app.descendants(matching: .any)["menuBar.settings.enableClaudeCode"]
+        XCTAssertTrue(codexToggle.waitForExistence(timeout: 2))
+        XCTAssertTrue(claudeToggle.waitForExistence(timeout: 2))
+
+        codexToggle.click()
+        XCTAssertTrue(app.buttons["menuBar.settings.back"].exists)
+        app.buttons["menuBar.settings.back"].click()
+
+        XCTAssertTrue(app.buttons["menuBar.tab.all"].waitForExistence(timeout: 2))
+        let codexTabButton = app.buttons["menuBar.tab.codex"]
+        let codexTabHidden = NSPredicate(format: "exists == false")
+        let codexHiddenExpectation = expectation(for: codexTabHidden, evaluatedWith: codexTabButton)
+        wait(for: [codexHiddenExpectation], timeout: 2)
+
         let quitButton = app.buttons["menuBar.action.quit"]
         XCTAssertTrue(quitButton.exists)
         quitButton.click()

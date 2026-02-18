@@ -79,6 +79,103 @@ final class SessionStoreTests: XCTestCase {
     func testInitialLoadingCompletes() async throws {
         XCTAssertFalse(store.isLoading)
     }
+
+    func testVisibleSessionsAllTabWithBothSourcesEnabled() async throws {
+        let visible = store.visibleSessions(for: .all, codexEnabled: true, claudeCodeEnabled: true)
+        XCTAssertEqual(visible.count, store.sessions.count)
+    }
+
+    func testVisibleSessionsCodexTabOnlyReturnsCodexSessions() async throws {
+        let visible = store.visibleSessions(for: .codex, codexEnabled: true, claudeCodeEnabled: true)
+        XCTAssertFalse(visible.isEmpty)
+        XCTAssertTrue(visible.allSatisfy { $0.agentType == .codex })
+    }
+
+    func testVisibleSessionsClaudeTabOnlyReturnsClaudeSessions() async throws {
+        let visible = store.visibleSessions(for: .claudeCode, codexEnabled: true, claudeCodeEnabled: true)
+        XCTAssertFalse(visible.isEmpty)
+        XCTAssertTrue(visible.allSatisfy { $0.agentType == .claudeCode })
+    }
+
+    func testVisibleSessionsAllTabExcludesDisabledSource() async throws {
+        let visible = store.visibleSessions(for: .all, codexEnabled: false, claudeCodeEnabled: true)
+        XCTAssertFalse(visible.isEmpty)
+        XCTAssertTrue(visible.allSatisfy { $0.agentType == .claudeCode })
+    }
+
+    func testVisibleSessionsReturnsEmptyWhenBothSourcesDisabled() async throws {
+        let visible = store.visibleSessions(for: .all, codexEnabled: false, claudeCodeEnabled: false)
+        XCTAssertTrue(visible.isEmpty)
+    }
+
+    func testVisibleSessionsCodexTabWhenCodexDisabledReturnsEmpty() async throws {
+        let visible = store.visibleSessions(for: .codex, codexEnabled: false, claudeCodeEnabled: true)
+        XCTAssertTrue(visible.isEmpty)
+    }
+
+    func testVisibleSessionsClaudeCodeTabWhenClaudeCodeDisabledReturnsEmpty() async throws {
+        let visible = store.visibleSessions(for: .claudeCode, codexEnabled: true, claudeCodeEnabled: false)
+        XCTAssertTrue(visible.isEmpty)
+    }
+
+    func testVisibleSessionsAllTabWithClaudeCodeDisabledReturnsOnlyCodex() async throws {
+        let visible = store.visibleSessions(for: .all, codexEnabled: true, claudeCodeEnabled: false)
+        XCTAssertFalse(visible.isEmpty)
+        XCTAssertTrue(visible.allSatisfy { $0.agentType == .codex })
+    }
+
+    // MARK: - Format Helpers
+
+    func testFormatTokenCountBelowThousand() {
+        XCTAssertEqual(SessionStore.formatTokenCount(500), "500")
+        XCTAssertEqual(SessionStore.formatTokenCount(0), "0")
+    }
+
+    func testFormatTokenCountThousands() {
+        XCTAssertEqual(SessionStore.formatTokenCount(1000), "1.0K")
+        XCTAssertEqual(SessionStore.formatTokenCount(1500), "1.5K")
+    }
+
+    func testFormatTokenCountMillions() {
+        XCTAssertEqual(SessionStore.formatTokenCount(1_000_000), "1.0M")
+        XCTAssertEqual(SessionStore.formatTokenCount(2_500_000), "2.5M")
+    }
+
+    func testFormatCostPositive() {
+        XCTAssertEqual(SessionStore.formatCost(12.345), "$12.35")
+    }
+
+    func testFormatCostZero() {
+        XCTAssertEqual(SessionStore.formatCost(0), "--")
+    }
+
+    // MARK: - SessionSourceTab Enum
+
+    func testSessionSourceTabCases() {
+        XCTAssertEqual(SessionSourceTab.allCases.count, 3)
+        XCTAssertEqual(SessionSourceTab.all.rawValue, "all")
+        XCTAssertEqual(SessionSourceTab.codex.rawValue, "codex")
+        XCTAssertEqual(SessionSourceTab.claudeCode.rawValue, "claudeCode")
+    }
+
+    // MARK: - Bool Preference
+
+    func testBoolPreferenceFallsBackWhenUnset() throws {
+        let suiteName = "SessionStoreTests.boolPreference.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create test defaults suite")
+            return
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(SessionStore.boolPreference(forKey: "codexEnabled", defaultValue: true, defaults: defaults))
+
+        defaults.set(false, forKey: "codexEnabled")
+        XCTAssertFalse(SessionStore.boolPreference(forKey: "codexEnabled", defaultValue: true, defaults: defaults))
+    }
 }
 
 actor UsageServiceSpy: UsageServiceProviding {
