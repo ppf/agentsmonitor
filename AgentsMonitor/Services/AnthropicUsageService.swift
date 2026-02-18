@@ -127,7 +127,7 @@ actor AnthropicUsageService: UsageServiceProviding {
     }
 
     private func loadFromFile() -> OAuthCredentials? {
-        let home = Self.realHomeDirectory()
+        let home = FileUtilities.realHomeDirectory()
         let path = (home as NSString).appendingPathComponent(".claude/.credentials.json")
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
         return parseCredentialData(data)
@@ -206,10 +206,4 @@ actor AnthropicUsageService: UsageServiceProviding {
         return rawValue
     }
 
-    private static func realHomeDirectory() -> String {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            return String(cString: dir)
-        }
-        return NSHomeDirectory()
-    }
 }

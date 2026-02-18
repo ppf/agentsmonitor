@@ -98,36 +98,41 @@ struct MenuBarMainView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
 
-            if let usage = sessionStore.usageData {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                // Anthropic usage
+                if let usage = sessionStore.usageData {
                     usageBar(label: "5-hour", utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
                     usageBar(label: "7-day", utilization: usage.sevenDay.utilization, resetsAt: usage.sevenDay.resetsAt)
                     if let sonnet = usage.sevenDaySonnet {
                         usageBar(label: "Sonnet 7d", utilization: sonnet.utilization, resetsAt: sonnet.resetsAt)
                     }
+                } else if let usageError = sessionStore.usageError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text(usageError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Loading usage...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding(.horizontal)
-            } else if let usageError = sessionStore.usageError {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.caption)
-                    Text(usageError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+
+                // Codex usage
+                if let codex = sessionStore.codexUsage {
+                    usageBar(label: "Codex 5hr", utilization: codex.primary.utilization, resetsAt: codex.primary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
+                    usageBar(label: "Codex 7d", utilization: codex.secondary.utilization, resetsAt: codex.secondary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
                 }
-                .padding(.horizontal)
-            } else {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Loading usage...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
             }
+            .padding(.horizontal)
 
             // Aggregate cost
             HStack(spacing: 16) {
@@ -142,8 +147,9 @@ struct MenuBarMainView: View {
         }
     }
 
-    private func usageBar(label: String, utilization: Double, resetsAt: String?) -> some View {
+    private func usageBar(label: String, utilization: Double, resetsAt: String?, tint: Color? = nil) -> some View {
         let clampedUtilization = min(max(utilization, 0), 1)
+        let barColor = tint ?? utilizationColor(utilization)
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label)
@@ -152,7 +158,7 @@ struct MenuBarMainView: View {
                 Text("\(Int((utilization * 100).rounded()))%")
                     .font(.caption)
                     .monospacedDigit()
-                    .foregroundStyle(utilizationColor(utilization))
+                    .foregroundStyle(barColor)
                 if let resetsAt {
                     Text("resets \(formatResetTime(resetsAt))")
                         .font(.caption2)
@@ -164,7 +170,7 @@ struct MenuBarMainView: View {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.gray.opacity(0.2))
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(utilizationColor(utilization))
+                        .fill(barColor)
                         .frame(width: geo.size.width * clampedUtilization)
                 }
             }
@@ -262,9 +268,7 @@ struct MenuBarExpandableSessionRow: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 12)
 
-                    Circle()
-                        .fill(AppTheme.statusColor(for: session.status))
-                        .frame(width: 8, height: 8)
+                    PulsatingStatusDot(status: session.status)
                         .accessibilityIdentifier("menuBar.session.status")
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -274,10 +278,10 @@ struct MenuBarExpandableSessionRow: View {
                                 .accessibilityIdentifier("menuBar.session.name")
                             Text(session.agentType == .codex ? "CX" : "CC")
                                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(session.agentType == .codex ? .orange : .blue)
+                                .foregroundStyle(AppTheme.agentTypeColor(for: session.agentType))
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
-                                .background((session.agentType == .codex ? Color.orange : Color.blue).opacity(0.12))
+                                .background(AppTheme.agentTypeColor(for: session.agentType).opacity(0.12))
                                 .cornerRadius(3)
                         }
 
@@ -302,15 +306,9 @@ struct MenuBarExpandableSessionRow: View {
 
                     Spacer()
 
-                    if session.status == .running {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .accessibilityIdentifier("menuBar.session.spinner")
-                    } else {
-                        Text(session.relativeTimeString)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text(session.relativeTimeString)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 6)
@@ -376,6 +374,40 @@ struct MenuBarExpandableSessionRow: View {
                 .font(.caption2)
             Text(text)
                 .lineLimit(1)
+        }
+    }
+}
+
+// MARK: - Pulsating Status Dot
+
+struct PulsatingStatusDot: View {
+    let status: SessionStatus
+    @State private var isPulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if status == .running && !reduceMotion {
+                Circle()
+                    .fill(AppTheme.statusColor(for: status).opacity(0.3))
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(isPulsing ? 1.0 : 0.5)
+                    .opacity(isPulsing ? 0 : 1)
+                    .animation(.easeOut(duration: 1.2).repeatForever(autoreverses: false), value: isPulsing)
+            }
+            Circle()
+                .fill(AppTheme.statusColor(for: status))
+                .frame(width: 8, height: 8)
+        }
+        .frame(width: 14, height: 14)
+        .accessibilityLabel("Session \(status.rawValue)")
+        .onAppear {
+            if status == .running {
+                isPulsing = true
+            }
+        }
+        .onChange(of: status) { _, newStatus in
+            isPulsing = newStatus == .running
         }
     }
 }
