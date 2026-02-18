@@ -1,14 +1,53 @@
+import Foundation
 import SwiftUI
 
 struct MenuBarMainView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(\.appEnvironment) private var appEnvironment
     @AppStorage("refreshInterval") private var refreshInterval: Double = 5.0
+    @AppStorage("codexEnabled") private var codexEnabled = true
+    @AppStorage("claudeCodeEnabled") private var claudeCodeEnabled = true
 
     let navigateToSettings: () -> Void
 
     @State private var expandedSessionId: UUID?
+    @State private var selectedSourceTab: SessionSourceTab = .all
     private let usageRefreshInterval: Double = 60.0
+
+    private var availableSourceTabs: [SessionSourceTab] {
+        var tabs: [SessionSourceTab] = [.all]
+        if codexEnabled {
+            tabs.append(.codex)
+        }
+        if claudeCodeEnabled {
+            tabs.append(.claudeCode)
+        }
+        return tabs
+    }
+
+    private var filteredSessions: [Session] {
+        sessionStore.visibleSessions(
+            for: selectedSourceTab,
+            codexEnabled: codexEnabled,
+            claudeCodeEnabled: claudeCodeEnabled
+        )
+    }
+
+    private var filteredRunningCount: Int {
+        filteredSessions.filter { $0.status == .running }.count
+    }
+
+    private var filteredAggregateTokens: Int {
+        filteredSessions.reduce(0) { $0 + $1.metrics.totalTokens }
+    }
+
+    private var filteredAggregateCost: Double {
+        filteredSessions.reduce(0) { $0 + $1.metrics.cost }
+    }
+
+    private var areAllSourcesDisabled: Bool {
+        !codexEnabled && !claudeCodeEnabled
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,14 +57,14 @@ struct MenuBarMainView: View {
                     .font(.headline)
                     .accessibilityIdentifier("menuBar.header.title")
                 Spacer()
-                let running = sessionStore.runningSessions.count
+                let running = filteredRunningCount
                 if running > 0 {
                     Text("\(running) active")
                         .font(.caption)
                         .foregroundStyle(AppTheme.statusColor(for: .running))
                         .accessibilityIdentifier("menuBar.header.activeCount")
                 } else {
-                    Text("\(sessionStore.sessions.count) sessions")
+                    Text("\(filteredSessions.count) sessions")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("menuBar.header.activeCount")
@@ -84,6 +123,15 @@ struct MenuBarMainView: View {
                 await sessionStore.fetchUsageData()
             }
         }
+        .onChange(of: codexEnabled) { _, _ in
+            syncSelectedTabWithAvailability()
+        }
+        .onChange(of: claudeCodeEnabled) { _, _ in
+            syncSelectedTabWithAvailability()
+        }
+        .onChange(of: selectedSourceTab) { _, _ in
+            expandedSessionId = nil
+        }
         .accessibilityIdentifier("menuBar.view")
     }
 
@@ -136,9 +184,9 @@ struct MenuBarMainView: View {
 
             // Aggregate cost
             HStack(spacing: 16) {
-                Label(sessionStore.formattedAggregateCost, systemImage: "dollarsign.circle")
+                Label(SessionStore.formatCost(filteredAggregateCost), systemImage: "dollarsign.circle")
                     .font(.caption)
-                Label(sessionStore.formattedAggregateTokens, systemImage: "number")
+                Label(SessionStore.formatTokenCount(filteredAggregateTokens), systemImage: "number")
                     .font(.caption)
             }
             .foregroundStyle(.secondary)
@@ -203,9 +251,23 @@ struct MenuBarMainView: View {
 
     @ViewBuilder
     private var sessionsSection: some View {
-        let allSessions = sessionStore.sessions
+        let allSessions = filteredSessions
 
-        if allSessions.isEmpty && !sessionStore.isLoading {
+        if areAllSourcesDisabled {
+            VStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+                Text("No agent sources enabled")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Enable Codex or Claude Code in Settings")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+        } else if allSessions.isEmpty && !sessionStore.isLoading {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.title2)
@@ -213,13 +275,22 @@ struct MenuBarMainView: View {
                 Text("No sessions found")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Start Claude Code to see sessions")
+                Text(emptyStateSubtitle)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
         } else {
+            HStack(spacing: 6) {
+                ForEach(availableSourceTabs) { tab in
+                    sourceTabButton(for: tab)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
             Text("SESSIONS")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -249,6 +320,61 @@ struct MenuBarMainView: View {
         }
     }
 
+    private func sourceTabButton(for tab: SessionSourceTab) -> some View {
+        let isSelected = selectedSourceTab == tab
+        return Button {
+            selectedSourceTab = tab
+        } label: {
+            Text(tab.title)
+                .font(.caption)
+                .foregroundStyle(isSelected ? AppTheme.tabSelectedForeground : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? AppTheme.tabSelectedBackground : AppTheme.tabBackground)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.accessibilityLabel)
+        .accessibilityHint("Filters sessions by agent source")
+        .accessibilityIdentifier(tab.accessibilityIdentifier)
+    }
+
+    private var emptyStateSubtitle: String {
+        if codexEnabled && claudeCodeEnabled {
+            return "Start Codex or Claude Code to see sessions"
+        }
+        if codexEnabled {
+            return "Start Codex to see sessions"
+        }
+        return "Start Claude Code to see sessions"
+    }
+
+    private func syncSelectedTabWithAvailability() {
+        if !availableSourceTabs.contains(selectedSourceTab) {
+            selectedSourceTab = .all
+        }
+    }
+
+}
+
+private extension SessionSourceTab {
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        "menuBar.tab.\(rawValue)"
+    }
+
+    var accessibilityLabel: String {
+        "\(title) sessions"
+    }
 }
 
 // MARK: - Expandable Session Row

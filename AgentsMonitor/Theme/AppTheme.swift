@@ -101,6 +101,12 @@ enum AppTheme {
         toolCallStatusColors[status] ?? .gray
     }
 
+    // MARK: - Tab Colors
+
+    static let tabSelectedBackground: AppColor = .accentColor
+    static let tabSelectedForeground: AppColor = .white
+    static let tabBackground: AppColor = AppColor.secondary.opacity(0.15)
+
     static func agentTypeColor(for agentType: AgentType) -> AppColor {
         switch agentType {
         case .codex: return .orange
