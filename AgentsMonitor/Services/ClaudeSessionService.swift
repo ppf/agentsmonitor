@@ -79,7 +79,7 @@ actor ClaudeSessionService {
     private let claudeDir: URL
 
     init() {
-        let home = Self.realHomeDirectory()
+        let home = FileUtilities.realHomeDirectory()
         self.claudeDir = URL(fileURLWithPath: home).appendingPathComponent(".claude")
     }
 
@@ -304,10 +304,4 @@ actor ClaudeSessionService {
         return Date().timeIntervalSince(mtimeDate) < 120
     }
 
-    private static func realHomeDirectory() -> String {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            return String(cString: dir)
-        }
-        return NSHomeDirectory()
-    }
 }

@@ -26,6 +26,8 @@
 		AM035 /* MenuBarSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF035 /* MenuBarSettingsView.swift */; };
 		AMTB001 /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF001 /* SessionStoreTests.swift */; };
 		AMTB002 /* AgentsMonitorMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF003 /* AgentsMonitorMenuBarTests.swift */; };
+		AM040 /* FileUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMF040 /* FileUtilities.swift */; };
+		AMTB003 /* TokenCostCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AMTF005 /* TokenCostCalculatorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +71,8 @@
 		AMTF002 /* AgentsMonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentsMonitorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AMTF003 /* AgentsMonitorMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsMonitorMenuBarTests.swift; sourceTree = "<group>"; };
 		AMTF004 /* AgentsMonitorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentsMonitorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AMF040 /* FileUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUtilities.swift; sourceTree = "<group>"; };
+		AMTF005 /* TokenCostCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCostCalculatorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -161,6 +165,7 @@
 				AMF037 /* TokenCostCalculator.swift */,
 				AMF038 /* AnthropicUsageService.swift */,
 				AMF021 /* Logger.swift */,
+				AMF040 /* FileUtilities.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -203,6 +208,7 @@
 			isa = PBXGroup;
 			children = (
 				AMTF001 /* SessionStoreTests.swift */,
+				AMTF005 /* TokenCostCalculatorTests.swift */,
 			);
 			path = ../AgentsMonitorTests;
 			sourceTree = "<group>";
@@ -333,6 +339,7 @@
 				AM035 /* MenuBarSettingsView.swift in Sources */,
 				AM020 /* Logger.swift in Sources */,
 				AM021 /* AppTheme.swift in Sources */,
+				AM040 /* FileUtilities.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -341,6 +348,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AMTB001 /* SessionStoreTests.swift in Sources */,
+				AMTB003 /* TokenCostCalculatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

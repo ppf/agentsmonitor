@@ -6,7 +6,7 @@ struct MenuBarSettingsView: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("refreshInterval") private var refreshInterval: Double = 5.0
     @AppStorage("appearance") private var appearance: String = "system"
-    @AppStorage("showAllSessions") private var showAllSessions = true
+    @AppStorage("activeOnly") private var activeOnly = false
     @AppStorage("showSidechains") private var showSidechains = false
 
     let navigateBack: () -> Void
@@ -40,7 +40,7 @@ struct MenuBarSettingsView: View {
                     settingsSection("GENERAL") {
                         Toggle("Launch at login", isOn: $launchAtLogin)
                         Toggle("Notifications", isOn: $notificationsEnabled)
-                        Toggle("Show all projects", isOn: $showAllSessions)
+                        Toggle("Active only", isOn: $activeOnly)
                         Toggle("Show sidechains", isOn: $showSidechains)
 
                         HStack {

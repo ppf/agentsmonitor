@@ -8,7 +8,7 @@ struct AgentsMonitorApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: [
-            "showAllSessions": true,
+            "activeOnly": false,
             "showSidechains": false,
             "refreshInterval": 5.0,
             "appearance": "system"

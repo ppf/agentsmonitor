@@ -100,6 +100,13 @@ enum AppTheme {
     static func toolCallStatusColor(for status: ToolCallStatus) -> AppColor {
         toolCallStatusColors[status] ?? .gray
     }
+
+    static func agentTypeColor(for agentType: AgentType) -> AppColor {
+        switch agentType {
+        case .codex: return .orange
+        case .claudeCode: return .blue
+        }
+    }
 }
 
 // MARK: - Environment Key for Code Font Size

@@ -5,7 +5,7 @@ actor CodexSessionService {
     private let codexDir: URL
 
     init() {
-        let home = Self.realHomeDirectory()
+        let home = FileUtilities.realHomeDirectory()
         self.codexDir = URL(fileURLWithPath: home).appendingPathComponent(".codex")
     }
 
@@ -154,6 +154,66 @@ actor CodexSessionService {
         )
     }
 
+    private var rateLimitCache: (path: String, mtime: Date, limits: CodexRateLimits)?
+
+    func fetchRateLimits() -> CodexRateLimits? {
+        let sessionsDir = codexDir.appendingPathComponent("sessions")
+        guard fileManager.fileExists(atPath: sessionsDir.path) else { return nil }
+
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir)
+        var runningFile: URL?
+        var runningMtime: Date = .distantPast
+        var fallbackFile: URL?
+        var fallbackMtime: Date = .distantPast
+        let now = Date()
+
+        for dateDir in dateDirs {
+            let files: [URL]
+            do {
+                files = try fileManager.contentsOfDirectory(
+                    at: dateDir,
+                    includingPropertiesForKeys: [.contentModificationDateKey],
+                    options: .skipsHiddenFiles
+                )
+            } catch {
+                AppLogger.logWarning("Failed to list \(dateDir.path): \(error.localizedDescription)", context: "CodexSessionService")
+                continue
+            }
+
+            for file in files where file.pathExtension == "jsonl" {
+                guard let attrs = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
+                      let mtime = attrs.contentModificationDate else { continue }
+                let isRunning = now.timeIntervalSince(mtime) < 120
+                if isRunning && mtime > runningMtime {
+                    runningMtime = mtime
+                    runningFile = file
+                } else if mtime > fallbackMtime {
+                    fallbackMtime = mtime
+                    fallbackFile = file
+                }
+            }
+        }
+
+        let file: URL
+        let fileMtime: Date
+        if let rf = runningFile {
+            file = rf; fileMtime = runningMtime
+        } else if let ff = fallbackFile {
+            file = ff; fileMtime = fallbackMtime
+        } else {
+            return nil
+        }
+
+        // Return cached result if file hasn't changed
+        if let cached = rateLimitCache, cached.path == file.path, cached.mtime == fileMtime {
+            return cached.limits
+        }
+
+        guard let limits = TokenCostCalculator.calculateCodex(jsonlPath: file.path)?.rateLimits else { return nil }
+        rateLimitCache = (path: file.path, mtime: fileMtime, limits: limits)
+        return limits
+    }
+
     private func recentDateDirectories(baseDir: URL) -> [URL] {
         let calendar = Calendar.current
         let today = Date()
@@ -197,10 +257,4 @@ actor CodexSessionService {
         return plain.date(from: string)
     }
 
-    private static func realHomeDirectory() -> String {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            return String(cString: dir)
-        }
-        return NSHomeDirectory()
-    }
 }

@@ -13,6 +13,7 @@ final class SessionStore {
     // Usage API
     var usageData: AnthropicUsage?
     var usageError: String?
+    var codexUsage: CodexRateLimits?
 
     // MARK: - Dependencies
 
@@ -22,8 +23,19 @@ final class SessionStore {
     private let environment: AppEnvironment
 
     // Token cost cache: jsonlPath → (mtime, summary)
-    private var costCache: [String: (mtime: Int64, summary: SessionTokenSummary)] = [:]
+    private var costCache: [String: CostCacheEntry] = [:]
     private var costCalculationTask: Task<Void, Never>?
+
+    struct CostCacheEntry: Codable {
+        let mtime: Int64
+        let summary: SessionTokenSummary
+    }
+
+    private static var cacheFileURL: URL {
+        URL(fileURLWithPath: FileUtilities.realHomeDirectory())
+            .appendingPathComponent(".claude")
+            .appendingPathComponent("agents-monitor-cost-cache.json")
+    }
 
     private var isRunningTests: Bool {
         environment.isTesting
@@ -41,6 +53,9 @@ final class SessionStore {
         self.codexService = codexService
         self.usageService = usageService
         self.environment = environment
+        if !environment.isTesting {
+            loadCostCache()
+        }
 
         Task {
             await initialLoad()
@@ -136,6 +151,11 @@ final class SessionStore {
         sessions.removeAll()
         selectedSessionId = nil
         costCache.removeAll()
+        do {
+            try FileManager.default.removeItem(at: Self.cacheFileURL)
+        } catch let error as NSError where !(error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError) {
+            AppLogger.logWarning("Failed to delete cost cache: \(error.localizedDescription)", context: "SessionStore")
+        } catch {}
     }
 
     // MARK: - Refresh & Loading
@@ -166,13 +186,15 @@ final class SessionStore {
         error = nil
 
         await AppLogger.measureAsync("load sessions") {
-            let showAll = UserDefaults.standard.bool(forKey: "showAllSessions")
+            let showAll = !UserDefaults.standard.bool(forKey: "activeOnly")
             let showSidechains = UserDefaults.standard.bool(forKey: "showSidechains")
 
             async let claudeSessions = sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
             async let codexSessions = codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+            async let codexLimits = codexService.fetchRateLimits()
 
             var discovered = await claudeSessions + codexSessions
+            codexUsage = await codexLimits
             discovered.sort { $0.startedAt > $1.startedAt }
 
             // Apply cached costs immediately
@@ -198,26 +220,37 @@ final class SessionStore {
         // Calculate uncached costs in background, update sessions incrementally
         costCalculationTask?.cancel()
         costCalculationTask = Task.detached(priority: .utility) {
-            let sessionMeta: [(id: UUID, jsonlPath: String, mtime: Int64)] = await MainActor.run {
+            let sessionMeta: [(id: UUID, jsonlPath: String, mtime: Int64, agentType: AgentType)] = await MainActor.run {
                 self.sessions.compactMap { session in
                     guard let path = session.jsonlPath else { return nil }
                     let cached = self.costCache[path]?.mtime == session.fileMtime
                     guard !cached else { return nil }
-                    return (id: session.id, jsonlPath: path, mtime: session.fileMtime)
+                    return (id: session.id, jsonlPath: path, mtime: session.fileMtime, agentType: session.agentType)
                 }
             }
 
             for entry in sessionMeta {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { break }
 
-                if let summary = TokenCostCalculator.calculate(jsonlPath: entry.jsonlPath) {
+                let summary: SessionTokenSummary?
+                if entry.agentType == .codex {
+                    summary = TokenCostCalculator.calculateCodex(jsonlPath: entry.jsonlPath)?.tokenSummary
+                } else {
+                    summary = TokenCostCalculator.calculate(jsonlPath: entry.jsonlPath)
+                }
+
+                if let summary {
                     await MainActor.run {
-                        self.costCache[entry.jsonlPath] = (mtime: entry.mtime, summary: summary)
+                        self.costCache[entry.jsonlPath] = CostCacheEntry(mtime: entry.mtime, summary: summary)
                         if let idx = self.sessions.firstIndex(where: { $0.id == entry.id }) {
                             self.applyTokenSummary(summary, to: &self.sessions[idx])
                         }
                     }
                 }
+            }
+
+            await MainActor.run {
+                self.saveCostCache()
             }
         }
     }
@@ -250,6 +283,41 @@ final class SessionStore {
         session.metrics.cost = summary.cost
         session.metrics.modelName = summary.modelName
         session.metrics.apiCalls = summary.apiCalls
+    }
+
+    private func loadCostCache() {
+        let url = Self.cacheFileURL
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            return
+        } catch {
+            AppLogger.logWarning("Failed to read cost cache: \(error.localizedDescription)", context: "SessionStore")
+            return
+        }
+        guard let decoded = try? JSONDecoder().decode([String: CostCacheEntry].self, from: data) else {
+            AppLogger.logWarning("Corrupt cost cache, starting fresh", context: "SessionStore")
+            return
+        }
+        costCache = decoded
+    }
+
+    private func saveCostCache() {
+        guard !isRunningTests else { return }
+        let url = Self.cacheFileURL
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(costCache)
+        } catch {
+            AppLogger.logWarning("Failed to encode cost cache: \(error.localizedDescription)", context: "SessionStore")
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            AppLogger.logWarning("Failed to save cost cache: \(error.localizedDescription)", context: "SessionStore")
+        }
     }
 
     @MainActor
