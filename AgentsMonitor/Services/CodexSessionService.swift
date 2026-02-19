@@ -130,7 +130,7 @@ actor CodexSessionService {
 
         let fileMtime = fileModificationTime(fileURL)
         let mtimeDate = Date(timeIntervalSince1970: TimeInterval(fileMtime) / 1000.0)
-        let isRunning = Date().timeIntervalSince(mtimeDate) < 900
+        let isRunning = Date().timeIntervalSince(mtimeDate) < 1800
         let status: SessionStatus = isRunning ? .running : .completed
 
         let shortId = String(sid.prefix(8))
@@ -183,7 +183,7 @@ actor CodexSessionService {
             for file in files where file.pathExtension == "jsonl" {
                 guard let attrs = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
                       let mtime = attrs.contentModificationDate else { continue }
-                let isRunning = now.timeIntervalSince(mtime) < 900
+                let isRunning = now.timeIntervalSince(mtime) < 1800
                 if isRunning && mtime > runningMtime {
                     runningMtime = mtime
                     runningFile = file
