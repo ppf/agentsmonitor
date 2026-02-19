@@ -37,16 +37,26 @@ struct MenuBarMainView: View {
         filteredSessions.filter { $0.status == .running }.count
     }
 
+    private var sevenDaySessions: [Session] {
+        let now = appEnvironment.now
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+        return filteredSessions.filter { $0.startedAt >= cutoff }
+    }
+
     private var filteredAggregateTokens: Int {
-        filteredSessions.reduce(0) { $0 + $1.metrics.totalTokens }
+        sevenDaySessions.reduce(0) { $0 + $1.metrics.totalTokens }
     }
 
     private var filteredAggregateCost: Double {
-        filteredSessions.reduce(0) { $0 + $1.metrics.cost }
+        sevenDaySessions.reduce(0) { $0 + $1.metrics.cost }
     }
 
     private var areAllSourcesDisabled: Bool {
         !codexEnabled && !claudeCodeEnabled
+    }
+
+    private var showUsageSection: Bool {
+        true
     }
 
     var body: some View {
@@ -74,13 +84,26 @@ struct MenuBarMainView: View {
 
             Divider()
 
+            if availableSourceTabs.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(availableSourceTabs) { tab in
+                        sourceTabButton(for: tab)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Usage Limits
-                    usageLimitsSection
+                    if showUsageSection {
+                        // Usage Limits
+                        usageLimitsSection
 
-                    Divider()
-                        .padding(.vertical, 4)
+                        Divider()
+                            .padding(.vertical, 4)
+                    }
 
                     // Sessions
                     sessionsSection
@@ -147,47 +170,56 @@ struct MenuBarMainView: View {
                 .padding(.top, 8)
 
             VStack(alignment: .leading, spacing: 6) {
-                // Anthropic usage
-                if let usage = sessionStore.usageData {
-                    usageBar(label: "5-hour", utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
-                    usageBar(label: "7-day", utilization: usage.sevenDay.utilization, resetsAt: usage.sevenDay.resetsAt)
-                    if let sonnet = usage.sevenDaySonnet {
-                        usageBar(label: "Sonnet 7d", utilization: sonnet.utilization, resetsAt: sonnet.resetsAt)
-                    }
-                } else if let usageError = sessionStore.usageError {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.caption)
-                        Text(usageError)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text("Loading usage...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                // Claude Code usage
+                if selectedSourceTab == .all || selectedSourceTab == .claudeCode {
+                    if let usage = sessionStore.usageData {
+                        usageBar(label: "5-hour", utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
+                        usageBar(label: "7-day", utilization: usage.sevenDay.utilization, resetsAt: usage.sevenDay.resetsAt)
+                        if let sonnet = usage.sevenDaySonnet {
+                            usageBar(label: "Sonnet 7d", utilization: sonnet.utilization, resetsAt: sonnet.resetsAt)
+                        }
+                    } else if let usageError = sessionStore.usageError {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text(usageError)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    } else {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Loading usage...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
                 // Codex usage
-                if let codex = sessionStore.codexUsage {
-                    usageBar(label: "Codex 5hr", utilization: codex.primary.utilization, resetsAt: codex.primary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
-                    usageBar(label: "Codex 7d", utilization: codex.secondary.utilization, resetsAt: codex.secondary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
+                if selectedSourceTab == .all || selectedSourceTab == .codex {
+                    if let codex = sessionStore.codexUsage {
+                        usageBar(label: "Codex 5hr", utilization: codex.primary.utilization, resetsAt: codex.primary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
+                        usageBar(label: "Codex 7d", utilization: codex.secondary.utilization, resetsAt: codex.secondary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
+                    }
                 }
             }
             .padding(.horizontal)
 
-            // Aggregate cost
-            HStack(spacing: 16) {
-                Label(SessionStore.formatCost(filteredAggregateCost), systemImage: "dollarsign.circle")
-                    .font(.caption)
-                Label(SessionStore.formatTokenCount(filteredAggregateTokens), systemImage: "number")
-                    .font(.caption)
+            // 7-day aggregate cost
+            HStack(spacing: 4) {
+                Text("7d")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                HStack(spacing: 12) {
+                    Label(SessionStore.formatCost(filteredAggregateCost), systemImage: "dollarsign.circle")
+                        .font(.caption)
+                    Label(SessionStore.formatTokenCount(filteredAggregateTokens), systemImage: "number")
+                        .font(.caption)
+                }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal)
@@ -282,15 +314,6 @@ struct MenuBarMainView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
         } else {
-            HStack(spacing: 6) {
-                ForEach(availableSourceTabs) { tab in
-                    sourceTabButton(for: tab)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
-
             Text("SESSIONS")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -337,7 +360,7 @@ struct MenuBarMainView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.accessibilityLabel)
-        .accessibilityHint("Filters sessions by agent source")
+        .accessibilityHint("Filters by agent source")
         .accessibilityIdentifier(tab.accessibilityIdentifier)
     }
 
