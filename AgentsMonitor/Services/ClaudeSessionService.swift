@@ -301,7 +301,7 @@ actor ClaudeSessionService {
         // fileMtime is milliseconds since epoch
         let mtimeSeconds = TimeInterval(entry.fileMtime) / 1000.0
         let mtimeDate = Date(timeIntervalSince1970: mtimeSeconds)
-        return Date().timeIntervalSince(mtimeDate) < 120
+        return Date().timeIntervalSince(mtimeDate) < 1800
     }
 
 }

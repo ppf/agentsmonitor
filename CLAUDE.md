@@ -121,7 +121,7 @@ actor ClaudeSessionService {
 ```
 
 - Scans `~/.claude/projects/*/sessions-index.json` for session entries
-- Determines running status via file mtime heuristic: sessions modified within last 120s are "running", otherwise "completed"
+- Determines running status via file mtime heuristic: sessions modified within last 30 minutes (1800s) are "running", otherwise "completed"
 - Extracts session name from `summary` field, falling back to `firstPrompt` prefix, then short session ID
 - Supports filtering: `showAll` toggles active-only vs all sessions, `showSidechains` includes/excludes sidechain sessions
 
@@ -240,7 +240,7 @@ await AppLogger.measureAsync("fetchData") { ... }
 
 ## Known Limitations
 
-1. **Running detection is heuristic-based:** Uses file mtime (120s threshold) since we can't reliably correlate OS processes to specific sessions
+1. **Running detection is heuristic-based:** Uses file mtime (30-minute / 1800s threshold) since we can't reliably correlate OS processes to specific sessions
 2. **Token costs require JSONL parsing:** First load can be slow for sessions with large conversation files; mitigated by mtime-based caching
 
 ## App Architecture
