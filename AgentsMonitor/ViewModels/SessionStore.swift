@@ -245,7 +245,7 @@ final class SessionStore {
                 ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
                 : []
             async let codexLimitsTask: CodexRateLimits? = codexEnabled
-                ? codexService.fetchRateLimits()
+                ? codexService.fetchRateLimits(showSidechains: showSidechains)
                 : nil
 
             var discovered = await claudeSessionsTask + codexSessionsTask
@@ -320,6 +320,7 @@ final class SessionStore {
             usageData = try await usageService.fetchUsage()
             usageError = nil
         } catch {
+            usageData = nil
             usageError = error.localizedDescription
             AppLogger.logWarning("Usage API: \(error.localizedDescription)", context: "fetchUsageData")
         }

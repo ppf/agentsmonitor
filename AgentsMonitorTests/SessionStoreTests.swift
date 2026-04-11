@@ -196,6 +196,21 @@ actor UsageServiceSpy: UsageServiceProviding {
     }
 }
 
+actor UsageServiceSequenceSpy: UsageServiceProviding {
+    private var results: [Result<AnthropicUsage, Error>]
+
+    init(results: [Result<AnthropicUsage, Error>]) {
+        self.results = results
+    }
+
+    func fetchUsage() async throws -> AnthropicUsage {
+        guard !results.isEmpty else {
+            throw UsageServiceError.networkError("No more stubbed responses")
+        }
+        return try results.removeFirst().get()
+    }
+}
+
 // MARK: - Usage Refresh Tests
 
 @MainActor
@@ -248,6 +263,35 @@ final class SessionStoreUsageRefreshTests: XCTestCase {
         let utilization = store.usageData?.fiveHour.utilization
         XCTAssertNotNil(utilization)
         XCTAssertEqual(utilization ?? 0, 0.25, accuracy: 0.0001)
+    }
+
+    func testFetchUsageDataClearsStaleUsageWhenRefreshFails() async throws {
+        let usage = AnthropicUsage(
+            fiveHour: .init(utilization: 0.25, resetsAt: nil),
+            sevenDay: .init(utilization: 0.40, resetsAt: nil),
+            sevenDaySonnet: nil,
+            extraUsage: nil
+        )
+        let spy = UsageServiceSequenceSpy(results: [
+            .success(usage),
+            .failure(UsageServiceError.authExpired)
+        ])
+        let environment = AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: nil,
+            fixedNow: nil
+        )
+        let store = SessionStore(usageService: spy, environment: environment)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        await store.fetchUsageData()
+        XCTAssertNotNil(store.usageData)
+
+        await store.fetchUsageData()
+
+        XCTAssertNil(store.usageData)
+        XCTAssertEqual(store.usageError, UsageServiceError.authExpired.errorDescription)
     }
 }
 

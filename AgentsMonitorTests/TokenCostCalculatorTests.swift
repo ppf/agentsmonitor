@@ -188,3 +188,93 @@ final class TokenCostCalculatorCodexTests: XCTestCase {
         XCTAssertEqual(decoded.summary.modelName, entry.summary.modelName)
     }
 }
+
+final class CodexSessionServiceTests: XCTestCase {
+    func testDiscoverSessionsTreatsCodexDesktopSourceAsMainSession() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex_sessions_\(UUID().uuidString)", isDirectory: true)
+        let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
+        let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day], from: Date())
+        let dateDir = sessionsDir
+            .appendingPathComponent(String(format: "%04d", components.year ?? 2026), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
+
+        try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let sessionId = "550e8400-e29b-41d4-a716-446655440000"
+        let jsonl = [
+            #"{"type":"session_meta","payload":{"id":"\#(sessionId)","timestamp":"2026-04-11T10:00:00.000Z","cwd":"/Users/test/project","source":"vscode","git":{"branch":"main"}}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
+            #"{"type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"Build the thing"}]}}"#
+        ].joined(separator: "\n")
+        let fileURL = dateDir.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionService(codexDir: codexDir)
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.agentType, .codex)
+        XCTAssertFalse(sessions.first?.isSidechain ?? true)
+    }
+
+    func testFetchRateLimitsIgnoresSidechainFilesWhenSidechainsAreHidden() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex_limits_\(UUID().uuidString)", isDirectory: true)
+        let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
+        let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day], from: Date())
+        let dateDir = sessionsDir
+            .appendingPathComponent(String(format: "%04d", components.year ?? 2026), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
+
+        try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let mainFile = try writeCodexSession(
+            in: dateDir,
+            sessionId: "550e8400-e29b-41d4-a716-446655440001",
+            sourceJSON: #""vscode""#,
+            usedPercent: 10,
+            modifiedAt: Date().addingTimeInterval(-60)
+        )
+        _ = mainFile
+        let sidechainFile = try writeCodexSession(
+            in: dateDir,
+            sessionId: "550e8400-e29b-41d4-a716-446655440002",
+            sourceJSON: #"{"kind":"subagent"}"#,
+            usedPercent: 90,
+            modifiedAt: Date()
+        )
+        _ = sidechainFile
+
+        let service = CodexSessionService(codexDir: codexDir)
+        let limits = await service.fetchRateLimits(showSidechains: false)
+
+        XCTAssertEqual(limits?.primary.utilization ?? 0, 0.10, accuracy: 0.001)
+    }
+
+    private func writeCodexSession(
+        in dateDir: URL,
+        sessionId: String,
+        sourceJSON: String,
+        usedPercent: Int,
+        modifiedAt: Date
+    ) throws -> URL {
+        let jsonl = [
+            #"{"type":"session_meta","payload":{"id":"\#(sessionId)","timestamp":"2026-04-11T10:00:00.000Z","cwd":"/Users/test/project","source":\#(sourceJSON),"git":{"branch":"main"}}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
+            #"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":\#(usedPercent),"resets_at":1700000000},"secondary":{"used_percent":5,"resets_at":1700100000}},"info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":50}}}}"#
+        ].joined(separator: "\n")
+        let fileURL = dateDir.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: fileURL.path)
+        return fileURL
+    }
+}

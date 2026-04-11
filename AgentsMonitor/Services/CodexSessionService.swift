@@ -4,9 +4,13 @@ actor CodexSessionService {
     private let fileManager = FileManager.default
     private let codexDir: URL
 
-    init() {
-        let home = FileUtilities.realHomeDirectory()
-        self.codexDir = URL(fileURLWithPath: home).appendingPathComponent(".codex")
+    init(codexDir: URL? = nil) {
+        if let codexDir {
+            self.codexDir = codexDir
+        } else {
+            let home = FileUtilities.realHomeDirectory()
+            self.codexDir = URL(fileURLWithPath: home).appendingPathComponent(".codex")
+        }
     }
 
     func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
@@ -81,11 +85,7 @@ actor CodexSessionService {
                     gitBranch = git["branch"] as? String
                 }
                 if let source = p["source"] {
-                    if source is String {
-                        isSidechain = (source as! String) != "cli"
-                    } else {
-                        isSidechain = true
-                    }
+                    isSidechain = !(source is String)
                 }
 
             case "turn_context":
@@ -156,7 +156,7 @@ actor CodexSessionService {
 
     private var rateLimitCache: (path: String, mtime: Date, limits: CodexRateLimits)?
 
-    func fetchRateLimits() -> CodexRateLimits? {
+    func fetchRateLimits(showSidechains: Bool = true) -> CodexRateLimits? {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return nil }
 
@@ -181,6 +181,9 @@ actor CodexSessionService {
             }
 
             for file in files where file.pathExtension == "jsonl" {
+                if !showSidechains, parseSessionFile(file)?.isSidechain == true {
+                    continue
+                }
                 guard let attrs = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
                       let mtime = attrs.contentModificationDate else { continue }
                 let isRunning = now.timeIntervalSince(mtime) < 1800
