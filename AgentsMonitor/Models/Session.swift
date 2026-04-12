@@ -95,8 +95,8 @@ struct Session: Identifiable, Hashable {
         return formatter.string(from: interval) ?? "0s"
     }
 
-    var relativeTimeString: String {
-        let interval = Date().timeIntervalSince(startedAt)
+    func relativeTimeString(asOf date: Date) -> String {
+        let interval = date.timeIntervalSince(startedAt)
         if interval < 60 { return "just now" }
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .abbreviated
@@ -110,6 +110,10 @@ struct Session: Identifiable, Hashable {
         }
         guard let formatted = formatter.string(from: interval) else { return "just now" }
         return "\(formatted) ago"
+    }
+
+    var relativeTimeString: String {
+        relativeTimeString(asOf: Date())
     }
 
     var shortProjectName: String? {

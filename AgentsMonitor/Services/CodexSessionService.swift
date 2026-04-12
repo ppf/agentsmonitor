@@ -53,10 +53,8 @@ actor CodexSessionService {
         guard let handle = FileHandle(forReadingAtPath: fileURL.path) else { return nil }
         defer { handle.closeFile() }
 
-        let chunkData = handle.readData(ofLength: 16384)
-        guard !chunkData.isEmpty, let chunk = String(data: chunkData, encoding: .utf8) else { return nil }
-
-        let lines = chunk.components(separatedBy: "\n").prefix(50)
+        let lines = readInitialLines(from: handle, maxLines: 50)
+        guard !lines.isEmpty else { return nil }
 
         var sessionId: String?
         var timestamp: String?
@@ -235,6 +233,25 @@ actor CodexSessionService {
         }
 
         return dirs
+    }
+
+    private func readInitialLines(from handle: FileHandle, maxLines: Int) -> [String] {
+        var data = Data()
+        var newlineCount = 0
+        let chunkSize = 64 * 1024
+        let maxBytes = 4 * 1024 * 1024
+
+        while newlineCount < maxLines && data.count < maxBytes {
+            let chunk = handle.readData(ofLength: min(chunkSize, maxBytes - data.count))
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            newlineCount += chunk.reduce(0) { count, byte in
+                count + (byte == 10 ? 1 : 0)
+            }
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        return Array(text.components(separatedBy: "\n").prefix(maxLines))
     }
 
     private func fileModificationTime(_ url: URL) -> Int64 {

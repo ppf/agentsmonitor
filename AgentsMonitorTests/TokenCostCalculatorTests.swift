@@ -222,6 +222,39 @@ final class CodexSessionServiceTests: XCTestCase {
         XCTAssertFalse(sessions.first?.isSidechain ?? true)
     }
 
+    func testDiscoverSessionsParsesLargeSessionMetaLine() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex_large_meta_\(UUID().uuidString)", isDirectory: true)
+        let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
+        let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day], from: Date())
+        let dateDir = sessionsDir
+            .appendingPathComponent(String(format: "%04d", components.year ?? 2026), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
+            .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
+
+        try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let sessionId = "550e8400-e29b-41d4-a716-446655440010"
+        let largeInstructions = String(repeating: "Codex metadata can be long. ", count: 900)
+        let jsonl = [
+            #"{"type":"session_meta","payload":{"id":"\#(sessionId)","timestamp":"2026-04-11T10:00:00.000Z","cwd":"/Users/test/project","source":"cli","base_instructions":{"text":"\#(largeInstructions)"}}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
+            #"{"type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"Measure usage"}]}}"#
+        ].joined(separator: "\n")
+        let fileURL = dateDir.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionService(codexDir: codexDir)
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.projectPath, "/Users/test/project")
+        XCTAssertEqual(sessions.first?.firstPrompt, "Measure usage")
+    }
+
     func testFetchRateLimitsIgnoresSidechainFilesWhenSidechainsAreHidden() async throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex_limits_\(UUID().uuidString)", isDirectory: true)

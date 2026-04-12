@@ -456,6 +456,13 @@ final class SessionModelTests: XCTestCase {
         XCTAssertTrue(relative.contains("ago"))
     }
 
+    func testRelativeTimeStringUsesReferenceDate() {
+        let now = Date(timeIntervalSince1970: 1_706_000_000)
+        let session = Session(name: "Test", startedAt: now.addingTimeInterval(-7200))
+        let relative = session.relativeTimeString(asOf: now)
+        XCTAssertTrue(relative.contains("2") && relative.contains("h") && relative.contains("ago"))
+    }
+
     func testRelativeTimeStringJustNow() {
         let session = Session(name: "Test", startedAt: Date())
         XCTAssertEqual(session.relativeTimeString, "just now")

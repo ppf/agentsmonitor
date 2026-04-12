@@ -95,20 +95,17 @@ struct MenuBarMainView: View {
                 .padding(.bottom, 2)
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if showUsageSection {
-                        // Usage Limits
-                        usageLimitsSection
+            if showUsageSection {
+                usageLimitsSection
 
-                        Divider()
-                            .padding(.vertical, 4)
-                    }
-
-                    // Sessions
-                    sessionsSection
-                }
+                Divider()
+                    .padding(.vertical, 4)
             }
+
+            ScrollView {
+                sessionsSection
+            }
+            .frame(minHeight: 120, maxHeight: 360)
 
             Divider()
 
@@ -455,7 +452,7 @@ struct MenuBarExpandableSessionRow: View {
 
                     Spacer()
 
-                    Text(session.relativeTimeString)
+                    Text(session.relativeTimeString(asOf: appEnvironment.now))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
