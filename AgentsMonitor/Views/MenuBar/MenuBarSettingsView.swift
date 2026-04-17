@@ -24,7 +24,7 @@ struct MenuBarSettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .foregroundStyle(Color.accentColor)
                 .accessibilityIdentifier("menuBar.settings.back")
 
                 Spacer()

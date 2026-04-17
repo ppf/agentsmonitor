@@ -35,9 +35,16 @@ struct TokenCostCalculator {
         var cacheReadTokens: Int = 0
     }
 
+    private static let sonnetFallbackPricing = ModelPricing(
+        inputPerMillion: 3.0,
+        cacheWritePerMillion: 3.75,
+        cacheReadPerMillion: 0.30,
+        outputPerMillion: 15.0
+    )
+
     private static let pricingTable: [(prefix: String, pricing: ModelPricing)] = [
         ("claude-opus-4", ModelPricing(inputPerMillion: 15.0, cacheWritePerMillion: 18.75, cacheReadPerMillion: 1.50, outputPerMillion: 75.0)),
-        ("claude-sonnet-4", ModelPricing(inputPerMillion: 3.0, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.30, outputPerMillion: 15.0)),
+        ("claude-sonnet-4", sonnetFallbackPricing),
         ("claude-haiku-4", ModelPricing(inputPerMillion: 0.80, cacheWritePerMillion: 1.00, cacheReadPerMillion: 0.08, outputPerMillion: 4.0)),
         // Order matters: longer prefixes first to avoid false hasPrefix matches
         ("gpt-5.3-codex", ModelPricing(inputPerMillion: 1.75, cacheWritePerMillion: 0, cacheReadPerMillion: 0.175, outputPerMillion: 14.0)),
@@ -223,8 +230,7 @@ struct TokenCostCalculator {
     private static func calculateCost(model: String, inputTokens: Int, outputTokens: Int, cacheWriteTokens: Int, cacheReadTokens: Int) -> Double {
         guard let pricing = pricingTable.first(where: { model.hasPrefix($0.prefix) })?.pricing else {
             AppLogger.logWarning("Unknown model '\(model)', falling back to Sonnet pricing", context: "TokenCostCalculator")
-            let fallback = pricingTable[1].pricing
-            return tokenCost(fallback, inputTokens: inputTokens, outputTokens: outputTokens, cacheWriteTokens: cacheWriteTokens, cacheReadTokens: cacheReadTokens)
+            return tokenCost(sonnetFallbackPricing, inputTokens: inputTokens, outputTokens: outputTokens, cacheWriteTokens: cacheWriteTokens, cacheReadTokens: cacheReadTokens)
         }
         return tokenCost(pricing, inputTokens: inputTokens, outputTokens: outputTokens, cacheWriteTokens: cacheWriteTokens, cacheReadTokens: cacheReadTokens)
     }

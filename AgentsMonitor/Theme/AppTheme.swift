@@ -43,12 +43,14 @@ enum AppTheme {
     // MARK: - Font Sizes
 
     enum FontSize: Int, CaseIterable {
+        case badge = 8
         case small = 11
         case medium = 12
         case large = 14
 
         var label: String {
             switch self {
+            case .badge: return "Badge (8pt)"
             case .small: return "Small (11pt)"
             case .medium: return "Medium (12pt)"
             case .large: return "Large (14pt)"
@@ -72,7 +74,9 @@ enum AppTheme {
     // MARK: - Corner Radius
 
     enum CornerRadius {
+        static let extraSmall: CGFloat = 3
         static let small: CGFloat = 4
+        static let tab: CGFloat = 6
         static let medium: CGFloat = 8
         static let large: CGFloat = 12
     }
@@ -113,6 +117,16 @@ enum AppTheme {
         case .claudeCode: return .blue
         }
     }
+
+    // MARK: - Utilization (usage bars)
+
+    static func utilizationColor(_ value: Double) -> AppColor {
+        if value > 0.9 { return statusColors[.failed] ?? .red }
+        if value > 0.7 { return statusColors[.waiting] ?? .orange }
+        return statusColors[.running] ?? .green
+    }
+
+    static let progressTrackBackground: AppColor = AppColor.gray.opacity(0.2)
 }
 
 // MARK: - Environment Key for Code Font Size

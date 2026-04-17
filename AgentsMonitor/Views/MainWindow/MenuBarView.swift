@@ -20,42 +20,6 @@ struct MenuBarView: View {
 
 // MARK: - Shared Components
 
-struct MenuBarSessionRow: View {
-    let session: Session
-    @Environment(\.appEnvironment) private var appEnvironment
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(.green)
-                .frame(width: 8, height: 8)
-                .accessibilityIdentifier("menuBar.session.status")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.name)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("menuBar.session.name")
-
-                Text(session.formattedDuration(asOf: appEnvironment.now))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("menuBar.session.duration")
-            }
-
-            Spacer()
-
-            ProgressView()
-                .controlSize(.mini)
-                .accessibilityIdentifier("menuBar.session.spinner")
-        }
-        .accessibilityElement(children: .contain)
-        .padding(.horizontal)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .accessibilityIdentifier("menuBar.sessionRow")
-    }
-}
-
 struct MenuBarStat: View {
     let value: String
     let label: String
@@ -81,6 +45,7 @@ struct MenuBarButton: View {
     let title: String
     let icon: String
     let identifier: String
+    let hint: String
     let action: () -> Void
 
     @State private var isHovered = false
@@ -101,6 +66,7 @@ struct MenuBarButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
+        .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
     }
 }

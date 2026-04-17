@@ -11,7 +11,11 @@ struct MenuBarMainView: View {
     let navigateToSettings: () -> Void
 
     @State private var expandedSessionId: UUID?
-    @State private var selectedSourceTab: SessionSourceTab = .all
+    @AppStorage("selectedSourceTab") private var selectedSourceTabRaw: String = SessionSourceTab.all.rawValue
+    private var selectedSourceTab: SessionSourceTab {
+        get { SessionSourceTab(rawValue: selectedSourceTabRaw) ?? .all }
+        nonmutating set { selectedSourceTabRaw = newValue.rawValue }
+    }
     private let usageRefreshInterval: Double = 60.0
 
     private var availableSourceTabs: [SessionSourceTab] {
@@ -55,10 +59,6 @@ struct MenuBarMainView: View {
         !codexEnabled && !claudeCodeEnabled
     }
 
-    private var showUsageSection: Bool {
-        true
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -95,12 +95,10 @@ struct MenuBarMainView: View {
                 .padding(.bottom, 2)
             }
 
-            if showUsageSection {
-                usageLimitsSection
+            usageLimitsSection
 
-                Divider()
-                    .padding(.vertical, 4)
-            }
+            Divider()
+                .padding(.vertical, 4)
 
             ScrollView {
                 sessionsSection
@@ -111,7 +109,12 @@ struct MenuBarMainView: View {
 
             // Actions
             VStack(spacing: 0) {
-                MenuBarButton(title: "Refresh", icon: "arrow.clockwise", identifier: "menuBar.action.refresh") {
+                MenuBarButton(
+                    title: "Refresh",
+                    icon: "arrow.clockwise",
+                    identifier: "menuBar.action.refresh",
+                    hint: "Reloads sessions and usage data"
+                ) {
                     Task {
                         await sessionStore.refreshAll()
                     }
@@ -119,11 +122,21 @@ struct MenuBarMainView: View {
 
                 Divider()
 
-                MenuBarButton(title: "Settings...", icon: "gearshape", identifier: "menuBar.action.settings") {
+                MenuBarButton(
+                    title: "Settings...",
+                    icon: "gearshape",
+                    identifier: "menuBar.action.settings",
+                    hint: "Opens app settings"
+                ) {
                     navigateToSettings()
                 }
 
-                MenuBarButton(title: "Quit", icon: "power", identifier: "menuBar.action.quit") {
+                MenuBarButton(
+                    title: "Quit",
+                    icon: "power",
+                    identifier: "menuBar.action.quit",
+                    hint: "Quits Agents Monitor"
+                ) {
                     NSApplication.shared.terminate(nil)
                 }
             }
@@ -149,7 +162,7 @@ struct MenuBarMainView: View {
         .onChange(of: claudeCodeEnabled) { _, _ in
             syncSelectedTabWithAvailability()
         }
-        .onChange(of: selectedSourceTab) { _, _ in
+        .onChange(of: selectedSourceTabRaw) { _, _ in
             expandedSessionId = nil
         }
         .accessibilityIdentifier("menuBar.view")
@@ -178,7 +191,7 @@ struct MenuBarMainView: View {
                     } else if let usageError = sessionStore.usageError {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(AppTheme.statusColor(for: .waiting))
                                 .font(.caption)
                             Text(usageError)
                                 .font(.caption)
@@ -226,7 +239,7 @@ struct MenuBarMainView: View {
 
     private func usageBar(label: String, utilization: Double, resetsAt: String?, tint: Color? = nil) -> some View {
         let clampedUtilization = min(max(utilization, 0), 1)
-        let barColor = tint ?? utilizationColor(utilization)
+        let barColor = tint ?? AppTheme.utilizationColor(utilization)
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label)
@@ -245,7 +258,7 @@ struct MenuBarMainView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(AppTheme.progressTrackBackground)
                     RoundedRectangle(cornerRadius: 2)
                         .fill(barColor)
                         .frame(width: geo.size.width * clampedUtilization)
@@ -253,12 +266,6 @@ struct MenuBarMainView: View {
             }
             .frame(height: 4)
         }
-    }
-
-    private func utilizationColor(_ value: Double) -> Color {
-        if value > 0.9 { return .red }
-        if value > 0.7 { return .orange }
-        return .green
     }
 
     private func formatResetTime(_ iso: String) -> String {
@@ -296,7 +303,17 @@ struct MenuBarMainView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-        } else if allSessions.isEmpty && !sessionStore.isLoading {
+        } else if sessionStore.isLoading && allSessions.isEmpty {
+            VStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading sessions…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+        } else if allSessions.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.title2)
@@ -351,7 +368,7 @@ struct MenuBarMainView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.tab)
                         .fill(isSelected ? AppTheme.tabSelectedBackground : AppTheme.tabBackground)
                 )
         }
@@ -423,12 +440,12 @@ struct MenuBarExpandableSessionRow: View {
                                 .lineLimit(1)
                                 .accessibilityIdentifier("menuBar.session.name")
                             Text(session.agentType == .codex ? "CX" : "CC")
-                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .font(.system(size: AppTheme.FontSize.badge.cgFloat, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(AppTheme.agentTypeColor(for: session.agentType))
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
                                 .background(AppTheme.agentTypeColor(for: session.agentType).opacity(0.12))
-                                .cornerRadius(3)
+                                .cornerRadius(AppTheme.CornerRadius.extraSmall)
                         }
 
                         HStack(spacing: 4) {
@@ -444,7 +461,7 @@ struct MenuBarExpandableSessionRow: View {
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
                                     .background(AppTheme.roleColor(for: .assistant).opacity(0.15))
-                                    .cornerRadius(3)
+                                    .cornerRadius(AppTheme.CornerRadius.extraSmall)
                                     .lineLimit(1)
                             }
                         }
@@ -461,6 +478,8 @@ struct MenuBarExpandableSessionRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(session.name)
+            .accessibilityHint(isExpanded ? "Collapse session details" : "Expand session details")
             .accessibilityIdentifier("menuBar.sessionRow")
 
             if isExpanded {

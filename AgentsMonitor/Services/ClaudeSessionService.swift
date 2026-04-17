@@ -83,7 +83,7 @@ actor ClaudeSessionService {
         self.claudeDir = URL(fileURLWithPath: home).appendingPathComponent(".claude")
     }
 
-    func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
+    func discoverSessions(showAll: Bool, showSidechains: Bool, now: Date = Date()) async -> [Session] {
         let projectsDir = claudeDir.appendingPathComponent("projects")
         guard fileManager.fileExists(atPath: projectsDir.path) else { return [] }
 
@@ -129,7 +129,7 @@ actor ClaudeSessionService {
         }
 
         // Convert to sessions with status detection.
-        // Heuristic: sessions modified within last 120s are considered active/running,
+        // Heuristic: sessions modified within last 30 minutes (1800s) are considered active/running,
         // since we can't reliably correlate OS processes to specific sessions.
         var sessions = allEntries.compactMap { entry -> Session? in
             guard let startDate = entry.startDate else {
@@ -141,7 +141,7 @@ actor ClaudeSessionService {
                 return nil
             }
 
-            let isRecent = isRecentlyModified(entry: entry)
+            let isRecent = isRecentlyModified(entry: entry, asOf: now)
             let status: SessionStatus = isRecent ? .running : .completed
 
             return Session(
@@ -297,11 +297,11 @@ actor ClaudeSessionService {
 
     // MARK: - Helpers
 
-    private func isRecentlyModified(entry: ClaudeSessionEntry) -> Bool {
+    private func isRecentlyModified(entry: ClaudeSessionEntry, asOf now: Date) -> Bool {
         // fileMtime is milliseconds since epoch
         let mtimeSeconds = TimeInterval(entry.fileMtime) / 1000.0
         let mtimeDate = Date(timeIntervalSince1970: mtimeSeconds)
-        return Date().timeIntervalSince(mtimeDate) < 1800
+        return now.timeIntervalSince(mtimeDate) < 1800
     }
 
 }
