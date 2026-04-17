@@ -43,6 +43,8 @@ actor AnthropicUsageService: UsageServiceProviding {
         let expiresAt: Int64
     }
 
+    private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+
     func fetchUsage() async throws -> AnthropicUsage {
         let credentials = try loadCredentials()
 
@@ -52,7 +54,7 @@ actor AnthropicUsageService: UsageServiceProviding {
             throw UsageServiceError.authExpired
         }
 
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
+        var request = URLRequest(url: Self.usageURL)
         request.httpMethod = "GET"
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")

@@ -235,17 +235,18 @@ final class SessionStore {
             let showSidechains = defaults.bool(forKey: "showSidechains")
             let codexEnabled = Self.boolPreference(forKey: "codexEnabled", defaultValue: true, defaults: defaults)
             let claudeCodeEnabled = Self.boolPreference(forKey: "claudeCodeEnabled", defaultValue: true, defaults: defaults)
+            let now = environment.now
 
             if !codexEnabled { codexUsage = nil }
 
             async let claudeSessionsTask: [Session] = claudeCodeEnabled
-                ? sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                ? sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains, now: now)
                 : []
             async let codexSessionsTask: [Session] = codexEnabled
-                ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains, now: now)
                 : []
             async let codexLimitsTask: CodexRateLimits? = codexEnabled
-                ? codexService.fetchRateLimits(showSidechains: showSidechains)
+                ? codexService.fetchRateLimits(showSidechains: showSidechains, now: now)
                 : nil
 
             var discovered = await claudeSessionsTask + codexSessionsTask
