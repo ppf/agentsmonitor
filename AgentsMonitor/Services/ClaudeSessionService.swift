@@ -83,7 +83,7 @@ actor ClaudeSessionService {
             .appendingPathComponent(".claude")
     }
 
-    func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
+    func discoverSessions(showAll: Bool, showSidechains: Bool, now: Date = Date()) async -> [Session] {
         let projectsDir = claudeDir.appendingPathComponent("projects")
         guard fileManager.fileExists(atPath: projectsDir.path) else { return [] }
 
@@ -123,13 +123,11 @@ actor ClaudeSessionService {
             return []
         }
 
-        // Filter sidechains
         if !showSidechains {
             allEntries = allEntries.filter { !$0.isSidechain }
         }
 
-        // Convert to sessions with status detection.
-        // Heuristic: sessions modified within last 30 minutes are considered active/running,
+        // Heuristic: sessions modified within last 30 minutes (1800s) are considered active/running,
         // since we can't reliably correlate OS processes to specific sessions.
         var sessions = allEntries.compactMap { entry -> Session? in
             guard let startDate = entry.startDate else {
@@ -145,7 +143,7 @@ actor ClaudeSessionService {
                 return nil
             }
 
-            let isRecent = isRecentlyModified(entry: entry)
+            let isRecent = isRecentlyModified(entry: entry, asOf: now)
             let status: SessionStatus = isRecent ? .running : .completed
 
             return Session(
@@ -167,14 +165,11 @@ actor ClaudeSessionService {
             )
         }
 
-        // Filter: active-only unless showAll
         if !showAll {
             sessions = sessions.filter { $0.status == .running }
         }
 
-        // Sort by most recent first
         sessions.sort { $0.startedAt > $1.startedAt }
-
         return sessions
     }
 
@@ -259,7 +254,6 @@ actor ClaudeSessionService {
 
         guard let timestamp = firstTimestamp else { return nil }
 
-        // File mtime
         let attrs = try? fileManager.attributesOfItem(atPath: file.path)
         let mtime: Date = (attrs?[.modificationDate] as? Date) ?? Date()
         let fileMtime = Int64(mtime.timeIntervalSince1970 * 1000)
@@ -321,11 +315,10 @@ actor ClaudeSessionService {
         return childPath == rootPath || childPath.hasPrefix(rootPath + "/")
     }
 
-    private func isRecentlyModified(entry: ClaudeSessionEntry) -> Bool {
-        // fileMtime is milliseconds since epoch
+    private func isRecentlyModified(entry: ClaudeSessionEntry, asOf now: Date) -> Bool {
         let mtimeSeconds = TimeInterval(entry.fileMtime) / 1000.0
         let mtimeDate = Date(timeIntervalSince1970: mtimeSeconds)
-        return Date().timeIntervalSince(mtimeDate) < 1800
+        return now.timeIntervalSince(mtimeDate) < 1800
     }
 
 }

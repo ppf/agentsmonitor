@@ -23,7 +23,7 @@ struct MenuBarSettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(AppTheme.secondaryAction)
+                .foregroundStyle(Color.accentColor)
                 .accessibilityLabel("Back")
                 .accessibilityHint("Returns to the sessions list")
                 .accessibilityIdentifier("menuBar.settings.back")

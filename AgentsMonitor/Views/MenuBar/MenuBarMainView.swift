@@ -12,7 +12,11 @@ struct MenuBarMainView: View {
     var isActive: Bool = true
 
     @State private var expandedSessionId: UUID?
-    @State private var selectedSourceTab: SessionSourceTab = .all
+    @AppStorage("selectedSourceTab") private var selectedSourceTabRaw: String = SessionSourceTab.all.rawValue
+    private var selectedSourceTab: SessionSourceTab {
+        get { SessionSourceTab(rawValue: selectedSourceTabRaw) ?? .all }
+        nonmutating set { selectedSourceTabRaw = newValue.rawValue }
+    }
     private let usageRefreshInterval: Double = 60.0
 
     private var availableSourceTabs: [SessionSourceTab] {
@@ -49,7 +53,6 @@ struct MenuBarMainView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             HStack {
                 Text("Agents Monitor")
                     .font(.headline)
@@ -95,14 +98,12 @@ struct MenuBarMainView: View {
 
             Divider()
 
-            // Actions
             VStack(spacing: 0) {
                 MenuBarButton(
                     title: "Refresh",
                     icon: "arrow.clockwise",
                     identifier: "menuBar.action.refresh",
-                    accessibilityLabel: "Refresh",
-                    accessibilityHint: "Reloads sessions and usage limits"
+                    hint: "Reloads sessions and usage limits"
                 ) {
                     Task {
                         await sessionStore.refreshAll()
@@ -115,8 +116,7 @@ struct MenuBarMainView: View {
                     title: "Settings...",
                     icon: "gearshape",
                     identifier: "menuBar.action.settings",
-                    accessibilityLabel: "Settings",
-                    accessibilityHint: "Opens application settings"
+                    hint: "Opens application settings"
                 ) {
                     navigateToSettings()
                 }
@@ -125,8 +125,7 @@ struct MenuBarMainView: View {
                     title: "Quit",
                     icon: "power",
                     identifier: "menuBar.action.quit",
-                    accessibilityLabel: "Quit",
-                    accessibilityHint: "Quits Agents Monitor"
+                    hint: "Quits Agents Monitor"
                 ) {
                     NSApplication.shared.terminate(nil)
                 }
@@ -135,20 +134,30 @@ struct MenuBarMainView: View {
         .task(id: "\(isActive)-\(refreshInterval)") {
             guard isActive, refreshInterval > 0 else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(refreshInterval))
+                do {
+                    try await Task.sleep(for: .seconds(refreshInterval))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled, isActive else { break }
                 await sessionStore.refresh()
             }
         }
-        .task(id: "\(isActive)-usage-\(usageRefreshInterval)") {
-            guard isActive, usageRefreshInterval > 0 else { return }
+        .task(id: "\(isActive)-usage-\(usageRefreshInterval)-\(claudeCodeEnabled)") {
+            guard isActive, usageRefreshInterval > 0, claudeCodeEnabled else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(usageRefreshInterval))
+                do {
+                    try await Task.sleep(for: .seconds(usageRefreshInterval))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled, isActive, claudeCodeEnabled else { break }
                 await sessionStore.fetchUsageData()
             }
         }
         .onChange(of: codexEnabled) { _, _ in syncSelectedTabWithAvailability() }
         .onChange(of: claudeCodeEnabled) { _, _ in syncSelectedTabWithAvailability() }
-        .onChange(of: selectedSourceTab) { _, _ in
+        .onChange(of: selectedSourceTabRaw) { _, _ in
             expandedSessionId = nil
         }
         .accessibilityIdentifier("menuBar.view")
@@ -166,8 +175,7 @@ struct MenuBarMainView: View {
                 .padding(.top, 8)
 
             VStack(alignment: .leading, spacing: 6) {
-                // Claude Code usage
-                if selectedSourceTab == .all || selectedSourceTab == .claudeCode {
+                if claudeCodeEnabled && (selectedSourceTab == .all || selectedSourceTab == .claudeCode) {
                     if let usage = sessionStore.usageData {
                         usageBar(label: "5-hour", utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
                         usageBar(label: "7-day", utilization: usage.sevenDay.utilization, resetsAt: usage.sevenDay.resetsAt)
@@ -177,9 +185,9 @@ struct MenuBarMainView: View {
                     } else if let usageError = sessionStore.usageError {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(AppTheme.warningIcon)
-                                .accessibilityHidden(true)
+                                .foregroundStyle(AppTheme.statusColor(for: .waiting))
                                 .font(.caption)
+                                .accessibilityHidden(true)
                             Text(usageError)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -196,7 +204,6 @@ struct MenuBarMainView: View {
                     }
                 }
 
-                // Codex usage
                 if selectedSourceTab == .all || selectedSourceTab == .codex {
                     if let codex = sessionStore.codexUsage {
                         usageBar(label: "Codex 5hr", utilization: codex.primary.utilization, resetsAt: codex.primary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
@@ -206,7 +213,6 @@ struct MenuBarMainView: View {
             }
             .padding(.horizontal)
 
-            // 7-day aggregate cost
             HStack(spacing: 4) {
                 Text("7d")
                     .font(.caption2)
@@ -226,7 +232,7 @@ struct MenuBarMainView: View {
 
     private func usageBar(label: String, utilization: Double, resetsAt: String?, tint: Color? = nil) -> some View {
         let clampedUtilization = min(max(utilization, 0), 1)
-        let barColor = tint ?? AppTheme.utilizationColor(for: utilization)
+        let barColor = tint ?? AppTheme.utilizationColor(utilization)
         let percentLabel = "\(Int((utilization * 100).rounded())) percent"
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
@@ -245,9 +251,9 @@ struct MenuBarMainView: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small / 2)
-                        .fill(AppTheme.usageBarTrack)
-                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small / 2)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(AppTheme.progressTrackBackground)
+                    RoundedRectangle(cornerRadius: 2)
                         .fill(barColor)
                         .frame(width: geo.size.width * clampedUtilization)
                 }
@@ -288,7 +294,17 @@ struct MenuBarMainView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-        } else if filteredSessions.isEmpty && !sessionStore.isLoading {
+        } else if sessionStore.isLoading && filteredSessions.isEmpty {
+            VStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading sessions…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+        } else if filteredSessions.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.title2)
@@ -344,7 +360,7 @@ struct MenuBarMainView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium - 2)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.tab)
                         .fill(isSelected ? AppTheme.tabSelectedBackground : AppTheme.tabBackground)
                 )
         }
@@ -369,7 +385,6 @@ struct MenuBarMainView: View {
             selectedSourceTab = .all
         }
     }
-
 }
 
 private enum ISO8601Parsers {
@@ -434,12 +449,12 @@ struct MenuBarExpandableSessionRow: View {
                                 .lineLimit(1)
                                 .accessibilityIdentifier("menuBar.session.name")
                             Text(session.agentType == .codex ? "CX" : "CC")
-                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .font(.system(size: AppTheme.FontSize.badge.cgFloat, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(AppTheme.agentTypeColor(for: session.agentType))
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
                                 .background(AppTheme.agentTypeColor(for: session.agentType).opacity(0.12))
-                                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small - 1))
+                                .cornerRadius(AppTheme.CornerRadius.extraSmall)
                         }
 
                         HStack(spacing: 4) {
@@ -454,8 +469,8 @@ struct MenuBarExpandableSessionRow: View {
                                     .font(.caption2)
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
-                                    .background(AppTheme.gitBranchBadge.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small - 1))
+                                    .background(AppTheme.roleColor(for: .assistant).opacity(0.15))
+                                    .cornerRadius(AppTheme.CornerRadius.extraSmall)
                                     .lineLimit(1)
                             }
                         }

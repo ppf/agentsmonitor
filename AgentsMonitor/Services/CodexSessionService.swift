@@ -9,11 +9,11 @@ actor CodexSessionService {
             .appendingPathComponent(".codex")
     }
 
-    func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
+    func discoverSessions(showAll: Bool, showSidechains: Bool, now: Date = Date()) async -> [Session] {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return [] }
 
-        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: showAll)
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: showAll, now: now)
         var sessions: [Session] = []
 
         for dateDir in dateDirs {
@@ -32,7 +32,7 @@ actor CodexSessionService {
             }
 
             for file in jsonlFiles {
-                guard let session = parseSessionFile(file) else { continue }
+                guard let session = parseSessionFile(file, asOf: now) else { continue }
 
                 if !showSidechains && session.isSidechain { continue }
                 if !showAll && session.status != .running { continue }
@@ -45,7 +45,7 @@ actor CodexSessionService {
         return sessions
     }
 
-    private func parseSessionFile(_ fileURL: URL) -> Session? {
+    private func parseSessionFile(_ fileURL: URL, asOf now: Date = Date()) -> Session? {
         guard let handle = FileHandle(forReadingAtPath: fileURL.path) else { return nil }
         defer { handle.closeFile() }
 
@@ -124,7 +124,7 @@ actor CodexSessionService {
 
         let fileMtime = fileModificationTime(fileURL)
         let mtimeDate = Date(timeIntervalSince1970: TimeInterval(fileMtime) / 1000.0)
-        let isRunning = Date().timeIntervalSince(mtimeDate) < 1800
+        let isRunning = now.timeIntervalSince(mtimeDate) < 1800
         let status: SessionStatus = isRunning ? .running : .completed
 
         let shortId = String(sid.prefix(8))
@@ -150,16 +150,15 @@ actor CodexSessionService {
 
     private var rateLimitCache: (path: String, mtime: Date, limits: CodexRateLimits)?
 
-    func fetchRateLimits(showSidechains: Bool = true) -> CodexRateLimits? {
+    func fetchRateLimits(showSidechains: Bool = true, now: Date = Date()) -> CodexRateLimits? {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return nil }
 
-        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: false)
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: false, now: now)
         var runningFile: URL?
         var runningMtime: Date = .distantPast
         var fallbackFile: URL?
         var fallbackMtime: Date = .distantPast
-        let now = Date()
 
         for dateDir in dateDirs {
             let files: [URL]
@@ -175,7 +174,7 @@ actor CodexSessionService {
             }
 
             for file in files where file.pathExtension == "jsonl" {
-                if !showSidechains, parseSessionFile(file)?.isSidechain == true {
+                if !showSidechains, parseSessionFile(file, asOf: now)?.isSidechain == true {
                     continue
                 }
                 guard let attrs = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
@@ -194,7 +193,6 @@ actor CodexSessionService {
         guard let file = runningFile ?? fallbackFile else { return nil }
         let fileMtime = file == runningFile ? runningMtime : fallbackMtime
 
-        // Return cached result if file hasn't changed
         if let cached = rateLimitCache, cached.path == file.path, cached.mtime == fileMtime {
             return cached.limits
         }
@@ -204,17 +202,16 @@ actor CodexSessionService {
         return limits
     }
 
-    private func recentDateDirectories(baseDir: URL, showAll: Bool) -> [URL] {
+    private func recentDateDirectories(baseDir: URL, showAll: Bool, now: Date = Date()) -> [URL] {
         if showAll {
             return allDateDirectories(baseDir: baseDir)
         }
 
         let calendar = Calendar.current
-        let today = Date()
         var dirs: [URL] = []
 
         for dayOffset in 0..<7 {
-            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
+            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: now) else { continue }
             if let path = dateDirectoryURL(baseDir: baseDir, date: date, calendar: calendar) {
                 dirs.append(path)
             }

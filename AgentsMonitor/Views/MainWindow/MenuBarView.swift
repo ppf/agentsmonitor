@@ -32,6 +32,7 @@ struct MenuBarView: View {
         content()
             .opacity(currentPage == page ? 1 : 0)
             .allowsHitTesting(currentPage == page)
+            .accessibilityHidden(currentPage != page)
     }
 }
 
@@ -41,8 +42,7 @@ struct MenuBarButton: View {
     let title: String
     let icon: String
     let identifier: String
-    let accessibilityLabel: String
-    let accessibilityHint: String
+    let hint: String
     let action: () -> Void
 
     @State private var isHovered = false
@@ -64,8 +64,8 @@ struct MenuBarButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(accessibilityHint)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
     }
 }

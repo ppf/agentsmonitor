@@ -301,17 +301,18 @@ final class SessionStore {
             let showSidechains = defaults.bool(forKey: "showSidechains")
             let codexEnabled = Self.boolPreference(forKey: "codexEnabled", defaultValue: true, defaults: defaults)
             let claudeCodeEnabled = Self.boolPreference(forKey: "claudeCodeEnabled", defaultValue: true, defaults: defaults)
+            let now = environment.now
 
             if !codexEnabled { codexUsage = nil }
 
             async let claudeSessionsTask: [Session] = claudeCodeEnabled
-                ? sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                ? sessionService.discoverSessions(showAll: showAll, showSidechains: showSidechains, now: now)
                 : []
             async let codexSessionsTask: [Session] = codexEnabled
-                ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains)
+                ? codexService.discoverSessions(showAll: showAll, showSidechains: showSidechains, now: now)
                 : []
             async let codexLimitsTask: CodexRateLimits? = codexEnabled
-                ? codexService.fetchRateLimits(showSidechains: showSidechains)
+                ? codexService.fetchRateLimits(showSidechains: showSidechains, now: now)
                 : nil
 
             guard !Task.isCancelled, generation == activeLoadGeneration else { return }
@@ -371,10 +372,12 @@ final class SessionStore {
 
                 if let summary {
                     await MainActor.run {
+                        guard !Task.isCancelled,
+                              let idx = self.sessions.firstIndex(where: { $0.id == entry.id }),
+                              self.sessions[idx].fileMtime == entry.mtime,
+                              self.sessions[idx].jsonlPath == entry.jsonlPath else { return }
                         self.costCache[entry.jsonlPath] = CostCacheEntry(mtime: entry.mtime, summary: summary)
-                        if let idx = self.sessions.firstIndex(where: { $0.id == entry.id }) {
-                            self.applyTokenSummary(summary, to: &self.sessions[idx])
-                        }
+                        self.applyTokenSummary(summary, to: &self.sessions[idx])
                     }
                 }
             }
