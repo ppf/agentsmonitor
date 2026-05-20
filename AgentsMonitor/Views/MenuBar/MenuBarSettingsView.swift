@@ -2,8 +2,6 @@ import SwiftUI
 
 struct MenuBarSettingsView: View {
     @Environment(SessionStore.self) private var sessionStore
-    @AppStorage("launchAtLogin") private var launchAtLogin = false
-    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("refreshInterval") private var refreshInterval: Double = 5.0
     @AppStorage("appearance") private var appearance: String = "system"
     @AppStorage("activeOnly") private var activeOnly = false
@@ -12,19 +10,22 @@ struct MenuBarSettingsView: View {
     @AppStorage("claudeCodeEnabled") private var claudeCodeEnabled = true
 
     let navigateBack: () -> Void
+    var isActive: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Back header
             HStack {
                 Button(action: navigateBack) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: AppTheme.Spacing.small) {
                         Image(systemName: "chevron.left")
+                            .accessibilityHidden(true)
                         Text("Back")
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .foregroundStyle(AppTheme.secondaryAction)
+                .accessibilityLabel("Back")
+                .accessibilityHint("Returns to the sessions list")
                 .accessibilityIdentifier("menuBar.settings.back")
 
                 Spacer()
@@ -37,13 +38,12 @@ struct MenuBarSettingsView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // General
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.large) {
                     settingsSection("GENERAL") {
-                        Toggle("Launch at login", isOn: $launchAtLogin)
-                        Toggle("Notifications", isOn: $notificationsEnabled)
                         Toggle("Active only", isOn: $activeOnly)
+                            .accessibilityHint("Shows only running sessions when enabled")
                         Toggle("Show sidechains", isOn: $showSidechains)
+                            .accessibilityHint("Includes sidechain sessions in the list when enabled")
                         Toggle("Enable Codex", isOn: $codexEnabled)
                             .accessibilityLabel("Enable Codex")
                             .accessibilityHint("Shows Codex sessions and refreshes Codex data when enabled")
@@ -56,7 +56,7 @@ struct MenuBarSettingsView: View {
                         HStack {
                             Text("Auto-refresh")
                             Spacer()
-                            Picker("", selection: $refreshInterval) {
+                            Picker("Auto-refresh interval", selection: $refreshInterval) {
                                 Text("1s").tag(1.0)
                                 Text("5s").tag(5.0)
                                 Text("10s").tag(10.0)
@@ -65,15 +65,15 @@ struct MenuBarSettingsView: View {
                             }
                             .labelsHidden()
                             .frame(width: 100)
+                            .accessibilityLabel("Auto-refresh interval")
                         }
                     }
 
-                    // Appearance
                     settingsSection("APPEARANCE") {
                         HStack {
                             Text("Theme")
                             Spacer()
-                            Picker("", selection: $appearance) {
+                            Picker("Theme", selection: $appearance) {
                                 Text("System").tag("system")
                                 Text("Light").tag("light")
                                 Text("Dark").tag("dark")
@@ -81,24 +81,25 @@ struct MenuBarSettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.segmented)
                             .frame(width: 180)
+                            .accessibilityLabel("Appearance theme")
                         }
                     }
                 }
                 .padding()
             }
         }
-        .frame(width: 300)
-        .onChange(of: codexEnabled) { _, _ in
-            refreshSessions()
-        }
-        .onChange(of: claudeCodeEnabled) { _, _ in
+        .onChange(of: refreshTrigger) { _, _ in
             refreshSessions()
         }
         .accessibilityIdentifier("menuBar.settings.view")
     }
 
+    private var refreshTrigger: String {
+        "\(activeOnly)-\(showSidechains)-\(codexEnabled)-\(claudeCodeEnabled)"
+    }
+
     private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.medium) {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)

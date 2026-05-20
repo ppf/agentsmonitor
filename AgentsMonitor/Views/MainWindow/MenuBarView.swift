@@ -9,78 +9,40 @@ struct MenuBarView: View {
     }
 
     var body: some View {
-        switch currentPage {
-        case .main:
-            MenuBarMainView(navigateToSettings: { currentPage = .settings })
-        case .settings:
-            MenuBarSettingsView(navigateBack: { currentPage = .main })
+        ZStack {
+            page(.main) {
+                MenuBarMainView(
+                    navigateToSettings: { currentPage = .settings },
+                    isActive: currentPage == .main
+                )
+            }
+
+            page(.settings) {
+                MenuBarSettingsView(
+                    navigateBack: { currentPage = .main },
+                    isActive: currentPage == .settings
+                )
+            }
         }
+        .frame(width: AppTheme.popoverWidth)
+    }
+
+    @ViewBuilder
+    private func page<Content: View>(_ page: MenuBarPage, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .opacity(currentPage == page ? 1 : 0)
+            .allowsHitTesting(currentPage == page)
     }
 }
 
 // MARK: - Shared Components
 
-struct MenuBarSessionRow: View {
-    let session: Session
-    @Environment(\.appEnvironment) private var appEnvironment
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(.green)
-                .frame(width: 8, height: 8)
-                .accessibilityIdentifier("menuBar.session.status")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.name)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("menuBar.session.name")
-
-                Text(session.formattedDuration(asOf: appEnvironment.now))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("menuBar.session.duration")
-            }
-
-            Spacer()
-
-            ProgressView()
-                .controlSize(.mini)
-                .accessibilityIdentifier("menuBar.session.spinner")
-        }
-        .accessibilityElement(children: .contain)
-        .padding(.horizontal)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .accessibilityIdentifier("menuBar.sessionRow")
-    }
-}
-
-struct MenuBarStat: View {
-    let value: String
-    let label: String
-
-    var body: some View {
-        let normalized = label.lowercased().replacingOccurrences(of: " ", with: "-")
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.title2)
-                .fontWeight(.semibold)
-                .monospacedDigit()
-                .accessibilityIdentifier("menuBar.stat.value.\(normalized)")
-
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("menuBar.stat.label.\(normalized)")
-        }
-    }
-}
-
 struct MenuBarButton: View {
     let title: String
     let icon: String
     let identifier: String
+    let accessibilityLabel: String
+    let accessibilityHint: String
     let action: () -> Void
 
     @State private var isHovered = false
@@ -90,17 +52,20 @@ struct MenuBarButton: View {
             HStack {
                 Image(systemName: icon)
                     .frame(width: 20)
+                    .accessibilityHidden(true)
                 Text(title)
                 Spacer()
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(isHovered ? Color.accentColor.opacity(0.1) : .clear)
+            .padding(.vertical, AppTheme.Spacing.medium)
+            .background(isHovered ? AppTheme.hoverBackground : .clear)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering
         }
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
         .accessibilityIdentifier(identifier)
     }
 }

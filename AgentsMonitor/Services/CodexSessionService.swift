@@ -5,19 +5,15 @@ actor CodexSessionService {
     private let codexDir: URL
 
     init(codexDir: URL? = nil) {
-        if let codexDir {
-            self.codexDir = codexDir
-        } else {
-            let home = FileUtilities.realHomeDirectory()
-            self.codexDir = URL(fileURLWithPath: home).appendingPathComponent(".codex")
-        }
+        self.codexDir = codexDir ?? URL(fileURLWithPath: FileUtilities.realHomeDirectory())
+            .appendingPathComponent(".codex")
     }
 
     func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return [] }
 
-        let dateDirs = recentDateDirectories(baseDir: sessionsDir)
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: showAll)
         var sessions: [Session] = []
 
         for dateDir in dateDirs {
@@ -158,7 +154,7 @@ actor CodexSessionService {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return nil }
 
-        let dateDirs = recentDateDirectories(baseDir: sessionsDir)
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: true)
         var runningFile: URL?
         var runningMtime: Date = .distantPast
         var fallbackFile: URL?
@@ -195,15 +191,8 @@ actor CodexSessionService {
             }
         }
 
-        let file: URL
-        let fileMtime: Date
-        if let rf = runningFile {
-            file = rf; fileMtime = runningMtime
-        } else if let ff = fallbackFile {
-            file = ff; fileMtime = fallbackMtime
-        } else {
-            return nil
-        }
+        guard let file = runningFile ?? fallbackFile else { return nil }
+        let fileMtime = file == runningFile ? runningMtime : fallbackMtime
 
         // Return cached result if file hasn't changed
         if let cached = rateLimitCache, cached.path == file.path, cached.mtime == fileMtime {
@@ -215,24 +204,64 @@ actor CodexSessionService {
         return limits
     }
 
-    private func recentDateDirectories(baseDir: URL) -> [URL] {
+    private func recentDateDirectories(baseDir: URL, showAll: Bool) -> [URL] {
+        if showAll {
+            return allDateDirectories(baseDir: baseDir)
+        }
+
         let calendar = Calendar.current
         let today = Date()
         var dirs: [URL] = []
 
         for dayOffset in 0..<7 {
             guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
-            let components = calendar.dateComponents([.year, .month, .day], from: date)
-            guard let year = components.year, let month = components.month, let day = components.day else { continue }
-
-            let path = baseDir
-                .appendingPathComponent(String(format: "%04d", year))
-                .appendingPathComponent(String(format: "%02d", month))
-                .appendingPathComponent(String(format: "%02d", day))
-            dirs.append(path)
+            if let path = dateDirectoryURL(baseDir: baseDir, date: date, calendar: calendar) {
+                dirs.append(path)
+            }
         }
 
         return dirs
+    }
+
+    private func allDateDirectories(baseDir: URL) -> [URL] {
+        guard let yearDirs = try? fileManager.contentsOfDirectory(
+            at: baseDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: .skipsHiddenFiles
+        ) else { return [] }
+
+        var dirs: [URL] = []
+        for yearDir in yearDirs where isDirectory(yearDir) {
+            guard let monthDirs = try? fileManager.contentsOfDirectory(
+                at: yearDir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            ) else { continue }
+            for monthDir in monthDirs where isDirectory(monthDir) {
+                guard let dayDirs = try? fileManager.contentsOfDirectory(
+                    at: monthDir,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: .skipsHiddenFiles
+                ) else { continue }
+                for dayDir in dayDirs where isDirectory(dayDir) {
+                    dirs.append(dayDir)
+                }
+            }
+        }
+        return dirs
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func dateDirectoryURL(baseDir: URL, date: Date, calendar: Calendar) -> URL? {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else { return nil }
+        return baseDir
+            .appendingPathComponent(String(format: "%04d", year))
+            .appendingPathComponent(String(format: "%02d", month))
+            .appendingPathComponent(String(format: "%02d", day))
     }
 
     private func readInitialLines(from handle: FileHandle, maxLines: Int) -> [String] {

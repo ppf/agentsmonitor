@@ -1,5 +1,7 @@
 # UI Testing & Automation
 
+See also [README.md](README.md) (build requirements) and [CLAUDE.md](CLAUDE.md) (architecture). Unit tests run in CI via `.github/workflows/macos-tests.yml`; UI tests are local/`scripts/ci.sh` only.
+
 ## Deterministic UI Testing Mode
 The app supports a deterministic UI test mode for stable automation runs:
 - Launch argument: `--ui-testing`

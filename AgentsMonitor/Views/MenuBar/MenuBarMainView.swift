@@ -9,20 +9,14 @@ struct MenuBarMainView: View {
     @AppStorage("claudeCodeEnabled") private var claudeCodeEnabled = true
 
     let navigateToSettings: () -> Void
+    var isActive: Bool = true
 
     @State private var expandedSessionId: UUID?
     @State private var selectedSourceTab: SessionSourceTab = .all
     private let usageRefreshInterval: Double = 60.0
 
     private var availableSourceTabs: [SessionSourceTab] {
-        var tabs: [SessionSourceTab] = [.all]
-        if codexEnabled {
-            tabs.append(.codex)
-        }
-        if claudeCodeEnabled {
-            tabs.append(.claudeCode)
-        }
-        return tabs
+        [.all] + (codexEnabled ? [.codex] : []) + (claudeCodeEnabled ? [.claudeCode] : [])
     }
 
     private var filteredSessions: [Session] {
@@ -34,29 +28,23 @@ struct MenuBarMainView: View {
     }
 
     private var filteredRunningCount: Int {
-        filteredSessions.filter { $0.status == .running }.count
+        sessionStore.runningCount(
+            for: selectedSourceTab,
+            codexEnabled: codexEnabled,
+            claudeCodeEnabled: claudeCodeEnabled
+        )
     }
 
-    private var sevenDaySessions: [Session] {
-        let now = appEnvironment.now
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-        return filteredSessions.filter { $0.startedAt >= cutoff }
-    }
-
-    private var filteredAggregateTokens: Int {
-        sevenDaySessions.reduce(0) { $0 + $1.metrics.totalTokens }
-    }
-
-    private var filteredAggregateCost: Double {
-        sevenDaySessions.reduce(0) { $0 + $1.metrics.cost }
+    private var sevenDayAggregates: (tokens: Int, cost: Double) {
+        sessionStore.sevenDayAggregates(
+            for: selectedSourceTab,
+            codexEnabled: codexEnabled,
+            claudeCodeEnabled: claudeCodeEnabled
+        )
     }
 
     private var areAllSourcesDisabled: Bool {
         !codexEnabled && !claudeCodeEnabled
-    }
-
-    private var showUsageSection: Bool {
-        true
     }
 
     var body: some View {
@@ -95,12 +83,10 @@ struct MenuBarMainView: View {
                 .padding(.bottom, 2)
             }
 
-            if showUsageSection {
-                usageLimitsSection
+            usageLimitsSection
 
-                Divider()
-                    .padding(.vertical, 4)
-            }
+            Divider()
+                .padding(.vertical, AppTheme.Spacing.small)
 
             ScrollView {
                 sessionsSection
@@ -111,7 +97,13 @@ struct MenuBarMainView: View {
 
             // Actions
             VStack(spacing: 0) {
-                MenuBarButton(title: "Refresh", icon: "arrow.clockwise", identifier: "menuBar.action.refresh") {
+                MenuBarButton(
+                    title: "Refresh",
+                    icon: "arrow.clockwise",
+                    identifier: "menuBar.action.refresh",
+                    accessibilityLabel: "Refresh",
+                    accessibilityHint: "Reloads sessions and usage limits"
+                ) {
                     Task {
                         await sessionStore.refreshAll()
                     }
@@ -119,36 +111,43 @@ struct MenuBarMainView: View {
 
                 Divider()
 
-                MenuBarButton(title: "Settings...", icon: "gearshape", identifier: "menuBar.action.settings") {
+                MenuBarButton(
+                    title: "Settings...",
+                    icon: "gearshape",
+                    identifier: "menuBar.action.settings",
+                    accessibilityLabel: "Settings",
+                    accessibilityHint: "Opens application settings"
+                ) {
                     navigateToSettings()
                 }
 
-                MenuBarButton(title: "Quit", icon: "power", identifier: "menuBar.action.quit") {
+                MenuBarButton(
+                    title: "Quit",
+                    icon: "power",
+                    identifier: "menuBar.action.quit",
+                    accessibilityLabel: "Quit",
+                    accessibilityHint: "Quits Agents Monitor"
+                ) {
                     NSApplication.shared.terminate(nil)
                 }
             }
         }
-        .frame(width: 320)
-        .task(id: refreshInterval) {
-            guard refreshInterval > 0 else { return }
+        .task(id: "\(isActive)-\(refreshInterval)") {
+            guard isActive, refreshInterval > 0 else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(refreshInterval))
                 await sessionStore.refresh()
             }
         }
-        .task(id: usageRefreshInterval) {
-            guard usageRefreshInterval > 0 else { return }
+        .task(id: "\(isActive)-usage-\(usageRefreshInterval)") {
+            guard isActive, usageRefreshInterval > 0 else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(usageRefreshInterval))
                 await sessionStore.fetchUsageData()
             }
         }
-        .onChange(of: codexEnabled) { _, _ in
-            syncSelectedTabWithAvailability()
-        }
-        .onChange(of: claudeCodeEnabled) { _, _ in
-            syncSelectedTabWithAvailability()
-        }
+        .onChange(of: codexEnabled) { _, _ in syncSelectedTabWithAvailability() }
+        .onChange(of: claudeCodeEnabled) { _, _ in syncSelectedTabWithAvailability() }
         .onChange(of: selectedSourceTab) { _, _ in
             expandedSessionId = nil
         }
@@ -178,7 +177,8 @@ struct MenuBarMainView: View {
                     } else if let usageError = sessionStore.usageError {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(AppTheme.warningIcon)
+                                .accessibilityHidden(true)
                                 .font(.caption)
                             Text(usageError)
                                 .font(.caption)
@@ -212,9 +212,9 @@ struct MenuBarMainView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 HStack(spacing: 12) {
-                    Label(SessionStore.formatCost(filteredAggregateCost), systemImage: "dollarsign.circle")
+                    Label(SessionStore.formatCost(sevenDayAggregates.cost), systemImage: "dollarsign.circle")
                         .font(.caption)
-                    Label(SessionStore.formatTokenCount(filteredAggregateTokens), systemImage: "number")
+                    Label(SessionStore.formatTokenCount(sevenDayAggregates.tokens), systemImage: "number")
                         .font(.caption)
                 }
             }
@@ -226,7 +226,8 @@ struct MenuBarMainView: View {
 
     private func usageBar(label: String, utilization: Double, resetsAt: String?, tint: Color? = nil) -> some View {
         let clampedUtilization = min(max(utilization, 0), 1)
-        let barColor = tint ?? utilizationColor(utilization)
+        let barColor = tint ?? AppTheme.utilizationColor(for: utilization)
+        let percentLabel = "\(Int((utilization * 100).rounded())) percent"
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label)
@@ -244,49 +245,40 @@ struct MenuBarMainView: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.gray.opacity(0.2))
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small / 2)
+                        .fill(AppTheme.usageBarTrack)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small / 2)
                         .fill(barColor)
                         .frame(width: geo.size.width * clampedUtilization)
                 }
             }
             .frame(height: 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(label) usage")
+            .accessibilityValue(percentLabel)
         }
     }
 
-    private func utilizationColor(_ value: Double) -> Color {
-        if value > 0.9 { return .red }
-        if value > 0.7 { return .orange }
-        return .green
-    }
-
     private func formatResetTime(_ iso: String) -> String {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-
-        guard let date = fractional.date(from: iso) ?? plain.date(from: iso) else {
+        guard let date = ISO8601Parsers.date(from: iso) else {
             return iso
         }
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: appEnvironment.now)
     }
 
     // MARK: - Sessions Section
 
     @ViewBuilder
     private var sessionsSection: some View {
-        let allSessions = filteredSessions
-
         if areAllSourcesDisabled {
             VStack(spacing: 8) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.title2)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 Text("No agent sources enabled")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -296,11 +288,12 @@ struct MenuBarMainView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-        } else if allSessions.isEmpty && !sessionStore.isLoading {
+        } else if filteredSessions.isEmpty && !sessionStore.isLoading {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.title2)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 Text("No sessions found")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -318,7 +311,7 @@ struct MenuBarMainView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 4)
 
-            ForEach(allSessions.prefix(20)) { session in
+            ForEach(filteredSessions.prefix(20)) { session in
                 MenuBarExpandableSessionRow(
                     session: session,
                     isExpanded: expandedSessionId == session.id,
@@ -330,8 +323,8 @@ struct MenuBarMainView: View {
                 )
             }
 
-            if allSessions.count > 20 {
-                Text("+\(allSessions.count - 20) more")
+            if filteredSessions.count > 20 {
+                Text("+\(filteredSessions.count - 20) more")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
@@ -351,7 +344,7 @@ struct MenuBarMainView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium - 2)
                         .fill(isSelected ? AppTheme.tabSelectedBackground : AppTheme.tabBackground)
                 )
         }
@@ -377,6 +370,24 @@ struct MenuBarMainView: View {
         }
     }
 
+}
+
+private enum ISO8601Parsers {
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    static func date(from string: String) -> Date? {
+        fractional.date(from: string) ?? plain.date(from: string)
+    }
 }
 
 private extension SessionSourceTab {
@@ -428,7 +439,7 @@ struct MenuBarExpandableSessionRow: View {
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
                                 .background(AppTheme.agentTypeColor(for: session.agentType).opacity(0.12))
-                                .cornerRadius(3)
+                                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small - 1))
                         }
 
                         HStack(spacing: 4) {
@@ -443,8 +454,8 @@ struct MenuBarExpandableSessionRow: View {
                                     .font(.caption2)
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
-                                    .background(AppTheme.roleColor(for: .assistant).opacity(0.15))
-                                    .cornerRadius(3)
+                                    .background(AppTheme.gitBranchBadge.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small - 1))
                                     .lineLimit(1)
                             }
                         }
@@ -461,6 +472,10 @@ struct MenuBarExpandableSessionRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(session.name)
+            .accessibilityHint(isExpanded ? "Collapse session details" : "Expand session details")
+            .accessibilityValue("Status \(session.status.rawValue)")
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("menuBar.sessionRow")
 
             if isExpanded {
@@ -518,6 +533,7 @@ struct MenuBarExpandableSessionRow: View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption2)
+                .accessibilityHidden(true)
             Text(text)
                 .lineLimit(1)
         }
@@ -546,7 +562,7 @@ struct PulsatingStatusDot: View {
                 .frame(width: 8, height: 8)
         }
         .frame(width: 14, height: 14)
-        .accessibilityLabel("Session \(status.rawValue)")
+        .accessibilityHidden(true)
         .onAppear {
             if status == .running {
                 isPulsing = true

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AgentsMonitor is a native macOS SwiftUI application for monitoring AI coding agent sessions (Claude Code, Codex). It provides an embedded terminal, tool call timeline, token metrics, and session management.
+AgentsMonitor is a native macOS **menu-bar-only** SwiftUI application for monitoring Claude Code and Codex sessions. It reads agent session files on disk (read-only), shows token/cost metrics, usage limits, and session status — no embedded terminal or process management.
 
 **Platform:** macOS 14.0+ (Sonoma)
 **Language:** Swift 5.9+
@@ -13,14 +13,13 @@ AgentsMonitor is a native macOS SwiftUI application for monitoring AI coding age
 
 - `AgentsMonitor/` contains the macOS SwiftUI app source.
 - `AgentsMonitor/App/` holds the app entry point (`AgentsMonitorApp.swift`).
-- `AgentsMonitor/Models/` holds data types: `Session`, `Message`, `ToolCall`, `AppState`, `AppEnvironment`.
+- `AgentsMonitor/Models/` holds data types: `Session`, `Message`, `ToolCall`, `AppEnvironment`.
 - `AgentsMonitor/ViewModels/SessionStore.swift` is the single source of truth for all session state.
-- `AgentsMonitor/Services/` holds actor-based services: `AgentService`, `AgentProcessManager`, `SessionPersistence`, `TerminalBridge`, `Logger`.
-- `AgentsMonitor/Views/` holds all SwiftUI views organized by feature area.
-- `AgentsMonitor/Components/` holds reusable UI components like `StatusBadge`.
-- `AgentsMonitor/Theme/` holds `AppTheme.swift` (colors, fonts, spacing) and `TerminalThemes.swift`.
-- `AgentsMonitor/Resources/` holds `Assets.xcassets`, fonts, and `Info.plist`.
-- `AgentsMonitorTests/` contains XCTest unit tests (80+ tests).
+- `AgentsMonitor/Services/` holds actor-based services: `ClaudeSessionService`, `CodexSessionService`, `TokenCostCalculator`, `AnthropicUsageService`, `Logger`.
+- `AgentsMonitor/Views/` holds SwiftUI views (`MenuBarView`, `MenuBarMainView`, `MenuBarSettingsView`).
+- `AgentsMonitor/Theme/` holds `AppTheme.swift` (colors, fonts, spacing).
+- `AgentsMonitor/Resources/` holds `Assets.xcassets` and `Info.plist`.
+- `AgentsMonitorTests/` contains XCTest unit tests (100+ tests).
 - `AgentsMonitorUITests/` contains UI integration tests.
 
 ## Build, Test, and Development Commands
@@ -39,7 +38,7 @@ xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMon
 xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests
 
 # Run a single test method
-xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests/testCreateNewSession
+xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests/testSelectedSessionReturnsCorrectSession
 ```
 
 In Xcode: Build (Cmd+B), Run (Cmd+R), Test (Cmd+U).
@@ -47,33 +46,38 @@ In Xcode: Build (Cmd+B), Run (Cmd+R), Test (Cmd+U).
 ## Key Architecture Patterns
 
 ### State Management
-- `SessionStore` is an `@Observable` class -- the single source of truth.
+- `SessionStore` is an `@MainActor @Observable` class — the single source of truth.
 - Views inject it via `@Environment(SessionStore.self)`.
 - Use `@Bindable var store = sessionStore` for two-way binding.
-- **Do NOT** use `@StateObject` or `ObservableObject` -- this project uses Swift 5.9+ `@Observable`.
+- **Do NOT** use `@StateObject` or `ObservableObject` — this project uses Swift 5.9+ `@Observable`.
 
 ### Actor-Based Concurrency
-- `AgentService`, `SessionPersistence`, `AgentProcessManager` are Swift actors.
-- No manual locking -- actor isolation provides thread safety.
+- `ClaudeSessionService`, `CodexSessionService`, and `AnthropicUsageService` are Swift actors.
+- Disk and network I/O are isolated; UI mutations happen on the main actor via `SessionStore`.
 
 ### Dependency Injection
 ```swift
-// Production
-SessionStore(agentService: AgentService(), persistence: SessionPersistence.shared)
+// Production (in AgentsMonitorApp.swift)
+let environment = AppEnvironment.current
+let sessionStore = SessionStore(environment: environment)
 
-// Tests -- nil persistence loads deterministic mock data
-SessionStore(agentService: AgentService(), persistence: nil)
+// Tests (in SessionStoreTests.swift)
+let environment = AppEnvironment(
+    isUITesting: false,
+    isUnitTesting: true,
+    mockSessionCount: nil,
+    fixedNow: nil
+)
+let store = SessionStore(environment: environment)
 ```
 
 ### Data Flow
 ```
-AgentProcessManager (spawn/signal) -> TerminalBridge (I/O)
+ClaudeSessionService / CodexSessionService (actors) -> read session index / JSONL on disk
     |
-SessionStore (@Observable) -> State mutations + cache invalidation
+SessionStore (@MainActor @Observable) -> cost cache, usage API, aggregates
     |
-Views (@Environment) -> Reactive UI updates
-    |
-SessionPersistence (actor) -> JSON files on disk
+MenuBarMainView / MenuBarSettingsView -> timer-based refresh
 ```
 
 ## Coding Style & Naming Conventions
@@ -82,8 +86,8 @@ SessionPersistence (actor) -> JSON files on disk
 - Types use `PascalCase`, variables/functions use `camelCase`.
 - File names match primary types (e.g., `SessionStore.swift`).
 - Keep SwiftUI views small; compose via subviews.
-- Use `AppTheme` for all colors, fonts, spacing -- never hardcode colors in views.
-- Use `AppLogger` for logging -- never use `print()`.
+- Use `AppTheme` for all colors, fonts, spacing — never hardcode colors in views.
+- Use `AppLogger` for logging — never use `print()`.
 - All icon buttons must have `.accessibilityLabel()` and `.accessibilityHint()`.
 
 ## Testing Guidelines
@@ -91,23 +95,22 @@ SessionPersistence (actor) -> JSON files on disk
 - XCTest is used (`import XCTest`, `@testable import AgentsMonitor`).
 - Test files follow `*Tests.swift`, classes end with `Tests`.
 - Test methods use `test...` naming.
-- `SessionStore` tests must use `@MainActor` since the store performs UI-bound mutations.
-- Use `persistence: nil` in test setup to avoid disk I/O and load deterministic mock data.
-- Wait for mock data loading: `try await Task.sleep(nanoseconds: 200_000_000)` after creating the store.
-- Keep tests deterministic; prefer dependency injection.
+- `SessionStore` tests must use `@MainActor` since the store is main-actor isolated.
+- Use `AppEnvironment(isUnitTesting: true)` to load deterministic mock data and skip disk I/O.
+- Prefer `try await SessionStoreTestSupport.waitForMockSessions(in: store)` over fixed `Task.sleep`; use `SessionStoreTestSupport.makeStore()` / `unitTestEnvironment()` for custom spies.
+- Keep tests deterministic; prefer dependency injection and temp-dir fixtures for services.
 
 ## Important Conventions When Modifying Code
 
-- Call `invalidateCache()` after any mutation to the `sessions` array in `SessionStore`.
-- Call `persistSession()` after state changes to save to disk asynchronously.
-- Terminal output is capped at 10 MB per session; persistence writes are throttled to 500ms intervals.
-- The `exitCode` field on `Session` stores the process exit code for post-mortem analysis.
-- When adding a new `SessionStatus`, update: the enum, `AppTheme.statusColors`, `AppState.SessionFilter`, `SessionStore.filteredSessions()`, and `SessionListView` FilterMenu.
+- Session loads are serialized via `loadTask` — cancel superseded loads before starting a new one.
+- Cost cache is keyed by `jsonlPath` + `fileMtime`; call `saveCostCache()` after background recalculation.
+- When adding a new `SessionStatus`, update: the enum, `AppTheme.statusColors`, and status UI in menu bar views.
+- Settings toggles that affect discovery (`activeOnly`, `showSidechains`, source enables) should trigger `sessionStore.refresh()`.
 
 ## Commit & Pull Request Guidelines
 
 - Use short, imperative, capitalized commit subjects.
-  - Example: `Fix terminal output memory leak and add persistence throttling`
+  - Example: `Fix filter settings not refreshing sessions immediately`
 - PRs should include:
   - A clear summary of changes.
   - Testing notes (commands run or "not run" with reason).
@@ -115,7 +118,11 @@ SessionPersistence (actor) -> JSON files on disk
 
 ## Security & Configuration
 
-- Do not hardcode secrets; use environment variables or local config.
+- Do not hardcode secrets; credentials come from macOS Keychain or `~/.claude/.credentials.json`.
 - Avoid logging sensitive data (tokens, credentials, PII).
 - App entitlements live in `AgentsMonitor/AgentsMonitor.entitlements`.
-- Override the sessions directory with env var: `AGENTS_MONITOR_SESSIONS_DIR=/path/to/dir`
+
+## CI
+
+- Local: `scripts/ci.sh` (UI preflight + full test suite on macOS with Xcode).
+- GitHub Actions: `.github/workflows/macos-tests.yml` runs unit tests on `macos-latest`.

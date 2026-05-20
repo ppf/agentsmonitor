@@ -1,6 +1,42 @@
 import XCTest
 @testable import AgentsMonitor
 
+enum SessionStoreTestSupport {
+    static func unitTestEnvironment(
+        mockSessionCount: Int? = nil,
+        fixedNow: Date? = nil
+    ) -> AppEnvironment {
+        AppEnvironment(
+            isUITesting: false,
+            isUnitTesting: true,
+            mockSessionCount: mockSessionCount,
+            fixedNow: fixedNow
+        )
+    }
+
+    @MainActor
+    static func makeStore(
+        usageService: any UsageServiceProviding = AnthropicUsageService(),
+        environment: AppEnvironment? = nil
+    ) -> SessionStore {
+        SessionStore(
+            usageService: usageService,
+            environment: environment ?? unitTestEnvironment()
+        )
+    }
+
+    @MainActor
+    static func waitForMockSessions(in store: SessionStore, timeout: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while store.sessions.isEmpty && Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        if store.sessions.isEmpty {
+            XCTFail("Timed out waiting for mock sessions to load")
+        }
+    }
+}
+
 // MARK: - SessionStore Tests
 
 @MainActor
@@ -10,14 +46,8 @@ final class SessionStoreTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        store = SessionStore(environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        store = SessionStore(environment: SessionStoreTestSupport.unitTestEnvironment())
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
     }
 
     override func tearDown() async throws {
@@ -63,6 +93,7 @@ final class SessionStoreTests: XCTestCase {
     }
 
     func testFailedSessionsFilter() async throws {
+        XCTAssertFalse(store.failedSessions.isEmpty)
         XCTAssertTrue(store.failedSessions.allSatisfy { $0.status == .failed })
     }
 
@@ -116,6 +147,12 @@ final class SessionStoreTests: XCTestCase {
     func testVisibleSessionsClaudeCodeTabWhenClaudeCodeDisabledReturnsEmpty() async throws {
         let visible = store.visibleSessions(for: .claudeCode, codexEnabled: true, claudeCodeEnabled: false)
         XCTAssertTrue(visible.isEmpty)
+    }
+
+    func testSevenDayAggregateTokensRespectsSourceTab() async throws {
+        let allTokens = store.sevenDayAggregateTokens(for: .all, codexEnabled: true, claudeCodeEnabled: true)
+        let codexOnly = store.sevenDayAggregateTokens(for: .codex, codexEnabled: true, claudeCodeEnabled: true)
+        XCTAssertGreaterThanOrEqual(allTokens, codexOnly)
     }
 
     func testVisibleSessionsAllTabWithClaudeCodeDisabledReturnsOnlyCodex() async throws {
@@ -224,14 +261,8 @@ final class SessionStoreUsageRefreshTests: XCTestCase {
             extraUsage: nil
         )
         let spy = UsageServiceSpy(result: .success(usage))
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        let store = SessionStore(usageService: spy, environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        let store = SessionStoreTestSupport.makeStore(usageService: spy)
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
 
         await store.refresh()
 
@@ -247,14 +278,8 @@ final class SessionStoreUsageRefreshTests: XCTestCase {
             extraUsage: nil
         )
         let spy = UsageServiceSpy(result: .success(usage))
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        let store = SessionStore(usageService: spy, environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        let store = SessionStoreTestSupport.makeStore(usageService: spy)
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
 
         await store.refreshAll()
 
@@ -266,24 +291,13 @@ final class SessionStoreUsageRefreshTests: XCTestCase {
     }
 
     func testFetchUsageDataClearsStaleUsageWhenRefreshFails() async throws {
-        let usage = AnthropicUsage(
-            fiveHour: .init(utilization: 0.25, resetsAt: nil),
-            sevenDay: .init(utilization: 0.40, resetsAt: nil),
-            sevenDaySonnet: nil,
-            extraUsage: nil
-        )
+        let usage = sampleUsage()
         let spy = UsageServiceSequenceSpy(results: [
             .success(usage),
             .failure(UsageServiceError.authExpired)
         ])
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        let store = SessionStore(usageService: spy, environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        let store = SessionStoreTestSupport.makeStore(usageService: spy)
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
 
         await store.fetchUsageData()
         XCTAssertNotNil(store.usageData)
@@ -292,6 +306,45 @@ final class SessionStoreUsageRefreshTests: XCTestCase {
 
         XCTAssertNil(store.usageData)
         XCTAssertEqual(store.usageError, UsageServiceError.authExpired.errorDescription)
+    }
+
+    func testFetchUsageDataKeepsStaleUsageWhenRefreshIsCancelled() async throws {
+        try await assertFetchUsagePreservesStaleDataOnCancellation(URLError(.cancelled))
+    }
+
+    func testFetchUsageDataKeepsStaleUsageWhenRefreshThrowsCancellationError() async throws {
+        try await assertFetchUsagePreservesStaleDataOnCancellation(CancellationError())
+    }
+
+    func testFetchUsageDataKeepsStaleUsageWhenRefreshThrowsNSURLCancelled() async throws {
+        let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        try await assertFetchUsagePreservesStaleDataOnCancellation(cancelled)
+    }
+
+    private func sampleUsage() -> AnthropicUsage {
+        AnthropicUsage(
+            fiveHour: .init(utilization: 0.25, resetsAt: nil),
+            sevenDay: .init(utilization: 0.40, resetsAt: nil),
+            sevenDaySonnet: nil,
+            extraUsage: nil
+        )
+    }
+
+    private func assertFetchUsagePreservesStaleDataOnCancellation(_ failure: Error) async throws {
+        let usage = sampleUsage()
+        let spy = UsageServiceSequenceSpy(results: [
+            .success(usage),
+            .failure(failure)
+        ])
+        let store = SessionStoreTestSupport.makeStore(usageService: spy)
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
+
+        await store.fetchUsageData()
+        await store.fetchUsageData()
+
+        XCTAssertNotNil(store.usageData)
+        XCTAssertEqual(store.usageData?.fiveHour.utilization ?? 0, 0.25, accuracy: 0.0001)
+        XCTAssertNil(store.usageError)
     }
 }
 
@@ -304,14 +357,8 @@ final class SessionStoreAggregateTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        store = SessionStore(environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        store = SessionStore(environment: SessionStoreTestSupport.unitTestEnvironment())
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
     }
 
     override func tearDown() async throws {
@@ -374,14 +421,8 @@ final class SessionStoreClearAllTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        store = SessionStore(environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        store = SessionStore(environment: SessionStoreTestSupport.unitTestEnvironment())
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
     }
 
     override func tearDown() async throws {

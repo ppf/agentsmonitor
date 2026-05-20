@@ -1,25 +1,20 @@
 # AgentsMonitor
 
-A native macOS application for monitoring and managing AI coding agent sessions. Track Claude Code and Codex sessions in real-time with an embedded terminal, tool call timeline, token metrics, and context window usage.
+A native macOS **menu-bar** application for monitoring Claude Code and Codex agent sessions. Read-only discovery from agent session files on disk, with token/cost metrics, usage limits, and session status at a glance.
 
 ## Features
 
-- **Session Management** -- Launch, pause, resume, and cancel agent sessions from one place
-- **Embedded Terminal** -- Full terminal emulation (via SwiftTerm) for each session
-- **Tool Call Timeline** -- Searchable split-view showing every tool invocation with inputs, outputs, and timing
-- **Token Metrics** -- Per-session dashboards: input/output tokens, cache hits, API calls, context window usage
-- **External Process Detection** -- Auto-discovers running `claude` and `codex` processes via `ps`
-- **Menu Bar Widget** -- Quick-glance status from the macOS menu bar
-- **Session Persistence** -- Sessions saved as JSON to `~/Library/Application Support/AgentsMonitor/Sessions/`
-- **Filtering & Search** -- Filter by status, sort by date/name, full-text search across session names and messages
-- **Export** -- Export any session as a JSON file
-- **Accessibility** -- VoiceOver labels, icon+color status indicators (colorblind-safe), keyboard shortcuts
-- **Theming** -- Multiple terminal themes (Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Light)
+- **Session discovery** — Claude Code (`~/.claude/projects/*/sessions-index.json`) and Codex (`~/.codex/sessions/`)
+- **Token metrics** — Per-session cost, tokens, model name (JSONL parsing with mtime-based cache)
+- **Usage limits** — Anthropic OAuth usage API (5-hour / 7-day windows) and Codex rate limits from session files
+- **Menu bar UI** — Expandable session rows, source tabs (All / Codex / Claude Code), auto-refresh
+- **Settings** — Active-only filter, sidechains, source toggles, refresh interval, appearance
+- **Accessibility** — VoiceOver labels on actions; status uses color + icon (colorblind-safe)
 
 ## Requirements
 
 - macOS 14.0+ (Sonoma)
-- Xcode 15+ (for building from source)
+- **Full Xcode** 15+ (not Command Line Tools alone — required for `xcodebuild`, SDK, and running the app)
 - Swift 5.9+
 
 ## Getting Started
@@ -27,30 +22,24 @@ A native macOS application for monitoring and managing AI coding agent sessions.
 ### Build & Run
 
 ```bash
-# Open in Xcode
 open AgentsMonitor/AgentsMonitor.xcodeproj
-
-# Build: Cmd+B
-# Run:   Cmd+R
-# Test:  Cmd+U
+# Build: Cmd+B  |  Run: Cmd+R  |  Test: Cmd+U
 ```
 
 ### Command Line Build & Test
 
 ```bash
-# Build
 xcodebuild build \
   -project AgentsMonitor/AgentsMonitor.xcodeproj \
   -scheme AgentsMonitor \
   -destination "platform=macOS"
 
-# Run all tests
 xcodebuild test \
   -project AgentsMonitor/AgentsMonitor.xcodeproj \
   -scheme AgentsMonitor \
   -destination "platform=macOS"
 
-# Run a specific test class
+# Specific test class
 xcodebuild test \
   -project AgentsMonitor/AgentsMonitor.xcodeproj \
   -scheme AgentsMonitor \
@@ -61,179 +50,60 @@ xcodebuild test \
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  AgentsMonitorApp (@main)                           │
-│  ├── WindowGroup → ContentView                      │
-│  ├── Settings    → SettingsView                     │
-│  ├── MenuBarExtra → MenuBarView                     │
-│  └── Window      → SessionDebugView                 │
-└─────────────────────┬───────────────────────────────┘
-                      │ @Environment injection
-┌─────────────────────▼───────────────────────────────┐
-│  SessionStore (@Observable)                         │
-│  Single source of truth for all session state       │
-│  ├── Session CRUD                                   │
-│  ├── Filtered cache with auto-invalidation          │
-│  ├── Process lifecycle (spawn/terminate/signal)     │
-│  └── Async persistence (non-blocking)               │
-└───────┬──────────────────┬──────────────────────────┘
-        │                  │
-┌───────▼──────┐   ┌───────▼──────────────┐
-│ AgentProcess │   │ SessionPersistence   │
-│ Manager      │   │ (actor)              │
-│ (actor)      │   │ JSON files on disk   │
-│ spawn/signal │   └──────────────────────┘
-│ /terminate   │
-└───────┬──────┘
-        │
-┌───────▼──────┐
-│ Terminal     │
-│ Bridge       │
-│ SwiftTerm ↔  │
-│ LocalProcess │
-└──────────────┘
+MenuBarExtra (AgentsMonitorApp)
+    └── MenuBarView (main ↔ settings)
+            └── SessionStore (@MainActor @Observable)
+                    ├── ClaudeSessionService (actor)
+                    ├── CodexSessionService (actor)
+                    ├── AnthropicUsageService (actor)
+                    └── TokenCostCalculator (sync JSONL)
 ```
 
 ### Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| `@Observable` (not `ObservableObject`) | Swift 5.9+ macro; finer-grained UI updates, no `@Published` boilerplate |
-| Actor-based services | Thread safety without manual locking for `AgentService`, `SessionPersistence`, `AgentProcessManager` |
-| Constructor injection | Testability: pass `persistence: nil` to load mock data in tests |
-| Single `SessionStore` | Avoids split-brain state; all mutations flow through one object |
-| `FilteredSessionsCache` | Avoids re-filtering on every SwiftUI body evaluation |
-| Lazy session loading | `SessionSummary` loaded at startup; full `Session` loaded on selection |
+| `@Observable` + `@MainActor` store | Swift 5.9+ observation with safe UI-bound mutations |
+| Actor-based discovery | Thread-safe file enumeration without manual locking |
+| Read-only data source | No app-owned persistence; monitors agents' own files |
+| mtime cost cache | Avoid re-parsing large JSONL until files change |
+| Serialized `loadTask` | Prevents overlapping refreshes from racing |
 
 ## Project Structure
 
 ```
 AgentsMonitor/
-├── App/
-│   ├── AgentsMonitorApp.swift          # @main entry, DI setup, scenes
-│   ├── AppDelegate.swift               # NSApplicationDelegate
-│   └── StatusItemController.swift      # Menu bar NSPopover management
-├── Models/
-│   ├── Session.swift                   # Session, SessionSummary, SessionMetrics,
-│   │                                   # SessionStatus, AgentType enums
-│   ├── Message.swift                   # Message struct, MessageRole enum
-│   ├── ToolCall.swift                  # ToolCall struct, ToolCallStatus enum
-│   ├── AppState.swift                  # UI state: tabs, search, filters, sort
-│   └── AppEnvironment.swift            # Testing/UI-test environment config
-├── ViewModels/
-│   └── SessionStore.swift              # @Observable store, CRUD, filtering,
-│                                       # process lifecycle, persistence
+├── App/AgentsMonitorApp.swift
+├── Models/Session.swift, Message.swift, ToolCall.swift, AppEnvironment.swift
+├── ViewModels/SessionStore.swift
 ├── Services/
-│   ├── AgentService.swift              # Actor-based WebSocket client
-│   ├── AgentProcessManager.swift       # Process spawn/signal/terminate
-│   ├── SessionPersistence.swift        # Actor-based JSON file I/O
-│   ├── TerminalBridge.swift            # SwiftTerm ↔ LocalProcess bridge
-│   └── Logger.swift                    # OSLog structured logging
+│   ├── ClaudeSessionService.swift
+│   ├── CodexSessionService.swift
+│   ├── TokenCostCalculator.swift
+│   ├── AnthropicUsageService.swift
+│   ├── FileUtilities.swift
+│   └── Logger.swift
 ├── Views/
-│   ├── MainWindow/
-│   │   ├── ContentView.swift           # NavigationSplitView root
-│   │   └── MenuBarView.swift           # Menu bar popover UI
-│   ├── SessionList/
-│   │   ├── SessionListView.swift       # Sidebar with sections & context menus
-│   │   └── NewSessionSheet.swift       # New session dialog
-│   ├── SessionDetail/
-│   │   ├── SessionDetailView.swift     # Tabbed detail: terminal/tools/metrics
-│   │   ├── TerminalView.swift          # NSViewRepresentable for SwiftTerm
-│   │   └── MetricsView.swift           # Token & usage metrics
-│   ├── ToolCalls/
-│   │   └── ToolCallsView.swift         # Split-view tool call browser
-│   └── Settings/
-│       ├── SettingsView.swift           # Tab-based preferences
-│       └── TerminalSettingsView.swift   # Terminal theme & font settings
-├── Components/
-│   └── StatusBadge.swift               # Reusable status indicator
-├── Theme/
-│   ├── AppTheme.swift                  # Colors, fonts, spacing, corner radii
-│   └── TerminalThemes.swift            # Terminal color schemes
-└── Resources/
-    ├── Assets.xcassets/                # App icons, accent color
-    ├── Fonts/                          # Custom fonts
-    └── Info.plist                      # Bundle metadata
-
-AgentsMonitorTests/
-├── SessionStoreTests.swift             # 80+ unit tests
-└── Fixtures/
-    ├── legacy_swift_session.json       # Backward-compat test data
-    └── legacy_tauri_session.json       # Cross-platform test data
-
-AgentsMonitorUITests/
-└── AgentsMonitorMenuBarTests.swift     # Menu bar integration tests
+│   ├── MainWindow/MenuBarView.swift
+│   └── MenuBar/MenuBarMainView.swift, MenuBarSettingsView.swift
+└── Theme/AppTheme.swift
 ```
 
-## Supported Agent Types
+## Data Sources
 
-| Agent | Executable | Detection |
-|-------|-----------|-----------|
-| Claude Code | `claude`, `claude-code` | Process name or args matching |
-| Codex | `codex`, `openai-codex` | Process name or args matching |
-| Custom | Configurable | User-defined path in Settings |
+| Data | Location |
+|------|----------|
+| Claude session index | `~/.claude/projects/{project}/sessions-index.json` |
+| Conversation JSONL | Paths in index `fullPath` |
+| Codex sessions | `~/.codex/sessions/YYYY/MM/DD/*.jsonl` |
+| Cost cache | `~/.claude/agents-monitor-cost-cache.json` |
+| OAuth credentials | Keychain or `~/.claude/.credentials.json` |
 
-Executable paths are auto-resolved from `~/.local/bin`, Homebrew, nvm, fnm, volta, and `$PATH`. Override paths can be configured per-agent in Settings.
+## CI
 
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+N` | New session |
-| `Cmd+R` | Refresh sessions |
-| `Cmd+Shift+K` | Clear completed sessions |
-| `Cmd+Ctrl+S` | Toggle sidebar |
-| `Cmd+Shift+D` | Debug info window |
-| `Cmd+,` | Settings |
-
-## Testing
-
-The test suite covers:
-
-- **SessionStore**: CRUD, filtering, sorting, caching, cache invalidation, message/tool-call appending, merge-during-load race conditions
-- **Models**: Session duration formatting, equality, status properties, agent type properties, metrics calculations, context window usage
-- **Persistence**: Legacy filename resolution, backward-compatible decoding, fractional-second timestamps
-- **Classification**: Agent process detection from `ps` output, executable name vs args priority
-
-All `SessionStore` tests use `@MainActor` and `persistence: nil` to avoid disk I/O and load deterministic mock data.
-
-## Data Storage
-
-Sessions are persisted as individual JSON files:
-
-```
-~/Library/Application Support/AgentsMonitor/Sessions/
-├── <uuid>.json
-├── <uuid>.json
-└── ...
-```
-
-The persistence layer handles:
-- Atomic writes (`.atomic` option)
-- Flexible ISO 8601 date decoding (with/without fractional seconds, Unix timestamps)
-- Legacy filename migration (uppercase UUID -> lowercase canonical)
-- Backward-compatible decoding of older session formats
-
-## Configuration
-
-The app stores preferences in `UserDefaults`:
-
-| Key | Description |
-|-----|-------------|
-| `showMenuBarExtra` | Show/hide menu bar widget |
-| `agentExecutableOverride.<type>` | Custom executable path per agent type |
-| `agentExecutableBookmark.<type>` | Security-scoped bookmark for sandboxed access |
-| `lastWorkingDirectory` | Most recently used working directory |
-
-Override the sessions directory with the environment variable:
-```bash
-AGENTS_MONITOR_SESSIONS_DIR=/path/to/sessions
-```
-
-## Contributing
-
-See [CLAUDE.md](CLAUDE.md) for development guidelines, architecture details, and coding patterns. See [AGENTS.md](AGENTS.md) for repository conventions compatible with AI coding agents.
+- **GitHub Actions:** `.github/workflows/macos-tests.yml` runs unit tests on `macos-latest`.
+- **Local:** `./scripts/ci.sh` runs UI preflight (`verify_status_item.sh`) then the full test suite. See [UI_TESTING.md](UI_TESTING.md) for UI automation flags.
 
 ## License
 
-This project is proprietary software. All rights reserved.
+See repository license file if present.

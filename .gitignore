@@ -46,6 +46,9 @@ Package.resolved
 *.pem
 credentials.json
 
+# Local build scratch
+build_tmp/
+
 # Build artifacts
 *.app
 *.ipa

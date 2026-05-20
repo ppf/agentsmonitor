@@ -9,6 +9,7 @@ enum SessionSourceTab: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+@MainActor
 @Observable
 final class SessionStore {
     // MARK: - Published State
@@ -32,6 +33,7 @@ final class SessionStore {
 
     // Token cost cache: jsonlPath → (mtime, summary)
     private var costCache: [String: CostCacheEntry] = [:]
+    private var loadTask: Task<Void, Never>?
     private var costCalculationTask: Task<Void, Never>?
 
     struct CostCacheEntry: Codable {
@@ -165,6 +167,53 @@ final class SessionStore {
         return defaults.bool(forKey: key)
     }
 
+    func sevenDayAggregateTokens(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> Int {
+        sevenDayAggregates(for: tab, codexEnabled: codexEnabled, claudeCodeEnabled: claudeCodeEnabled).tokens
+    }
+
+    func sevenDayAggregateCost(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> Double {
+        sevenDayAggregates(for: tab, codexEnabled: codexEnabled, claudeCodeEnabled: claudeCodeEnabled).cost
+    }
+
+    func sevenDayAggregates(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> (tokens: Int, cost: Double) {
+        sevenDaySessions(for: tab, codexEnabled: codexEnabled, claudeCodeEnabled: claudeCodeEnabled)
+            .reduce(into: (tokens: 0, cost: 0.0)) { totals, session in
+                totals.tokens += session.metrics.totalTokens
+                totals.cost += session.metrics.cost
+            }
+    }
+
+    func runningCount(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> Int {
+        visibleSessions(for: tab, codexEnabled: codexEnabled, claudeCodeEnabled: claudeCodeEnabled)
+            .count(where: { $0.status == .running })
+    }
+
+    private func sevenDaySessions(
+        for tab: SessionSourceTab,
+        codexEnabled: Bool,
+        claudeCodeEnabled: Bool
+    ) -> [Session] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: environment.now) ?? environment.now
+        return visibleSessions(for: tab, codexEnabled: codexEnabled, claudeCodeEnabled: claudeCodeEnabled)
+            .filter { $0.startedAt >= cutoff }
+    }
+
     func visibleSessions(
         for tab: SessionSourceTab,
         codexEnabled: Bool,
@@ -204,20 +253,26 @@ final class SessionStore {
 
     // MARK: - Refresh & Loading
 
-    @MainActor
     func refresh() async {
-        await loadSessions()
+        await performLoadSessions()
     }
 
-    @MainActor
     func refreshAll() async {
-        async let sessionsTask: () = loadSessions()
+        async let sessionsTask: () = performLoadSessions()
         async let usageTask: () = fetchUsageData()
         _ = await (sessionsTask, usageTask)
     }
 
-    @MainActor
-    func loadSessions() async {
+    private func performLoadSessions() async {
+        loadTask?.cancel()
+        let task = Task {
+            await loadSessions()
+        }
+        loadTask = task
+        await task.value
+    }
+
+    private func loadSessions() async {
         if isRunningTests && environment.isUITesting {
             loadMockData(referenceDate: environment.now, sessionCount: environment.mockSessionCount)
             return
@@ -226,10 +281,14 @@ final class SessionStore {
             return
         }
 
+        guard !Task.isCancelled else { return }
+
         isLoading = true
         error = nil
+        defer { isLoading = false }
 
         await AppLogger.measureAsync("load sessions") {
+            guard !Task.isCancelled else { return }
             let defaults = UserDefaults.standard
             let showAll = !defaults.bool(forKey: "activeOnly")
             let showSidechains = defaults.bool(forKey: "showSidechains")
@@ -248,9 +307,13 @@ final class SessionStore {
                 ? codexService.fetchRateLimits(showSidechains: showSidechains)
                 : nil
 
+            guard !Task.isCancelled else { return }
+
             var discovered = await claudeSessionsTask + codexSessionsTask
             codexUsage = await codexLimitsTask
             discovered.sort { $0.startedAt > $1.startedAt }
+
+            guard !Task.isCancelled else { return }
 
             // Apply cached costs immediately
             for i in discovered.indices {
@@ -263,14 +326,15 @@ final class SessionStore {
 
             sessions = discovered
 
-            if let current = selectedSessionId, sessions.contains(where: { $0.id == current }) {
-                // Keep selection
-            } else {
+            let keepsSelection = selectedSessionId.map { id in
+                sessions.contains(where: { $0.id == id })
+            } ?? false
+            if !keepsSelection {
                 selectedSessionId = sessions.first?.id
             }
         }
 
-        isLoading = false
+        guard !Task.isCancelled else { return }
 
         // Calculate uncached costs in background, update sessions incrementally
         costCalculationTask?.cancel()
@@ -314,11 +378,12 @@ final class SessionStore {
         }
     }
 
-    @MainActor
     func fetchUsageData() async {
         do {
             usageData = try await usageService.fetchUsage()
             usageError = nil
+        } catch where Self.isUsageRefreshCancellation(error) {
+            return
         } catch {
             usageData = nil
             usageError = error.localizedDescription
@@ -333,6 +398,19 @@ final class SessionStore {
     }
 
     // MARK: - Private Helpers
+
+    private static func isUsageRefreshCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
 
     private func applyTokenSummary(_ summary: SessionTokenSummary, to session: inout Session) {
         session.metrics.inputTokens = summary.inputTokens
@@ -380,7 +458,6 @@ final class SessionStore {
         }
     }
 
-    @MainActor
     private func initialLoad() async {
         if environment.isUITesting {
             loadMockData(referenceDate: environment.now, sessionCount: environment.mockSessionCount)
@@ -432,7 +509,16 @@ final class SessionStore {
             metrics: SessionMetrics(modelName: "gpt-5.3-codex")
         )
 
-        var baseSessions = [session1, session2, session3, session4]
+        let session5 = Session(
+            name: "Deploy pipeline fix",
+            status: .failed,
+            agentType: .claudeCode,
+            startedAt: now.addingTimeInterval(-9000),
+            endedAt: now.addingTimeInterval(-8000),
+            metrics: SessionMetrics(totalTokens: 500, inputTokens: 300, outputTokens: 200, toolCallCount: 1, errorCount: 1, apiCalls: 2)
+        )
+
+        var baseSessions = [session1, session2, session3, session4, session5]
 
         if let sessionCount, sessionCount > baseSessions.count {
             let extraCount = sessionCount - baseSessions.count

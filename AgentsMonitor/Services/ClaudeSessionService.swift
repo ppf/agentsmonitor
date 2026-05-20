@@ -78,9 +78,9 @@ actor ClaudeSessionService {
     private let fileManager = FileManager.default
     private let claudeDir: URL
 
-    init() {
-        let home = FileUtilities.realHomeDirectory()
-        self.claudeDir = URL(fileURLWithPath: home).appendingPathComponent(".claude")
+    init(claudeDir: URL? = nil) {
+        self.claudeDir = claudeDir ?? URL(fileURLWithPath: FileUtilities.realHomeDirectory())
+            .appendingPathComponent(".claude")
     }
 
     func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session] {
@@ -129,7 +129,7 @@ actor ClaudeSessionService {
         }
 
         // Convert to sessions with status detection.
-        // Heuristic: sessions modified within last 120s are considered active/running,
+        // Heuristic: sessions modified within last 30 minutes are considered active/running,
         // since we can't reliably correlate OS processes to specific sessions.
         var sessions = allEntries.compactMap { entry -> Session? in
             guard let startDate = entry.startDate else {
