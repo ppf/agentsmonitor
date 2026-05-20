@@ -34,6 +34,7 @@ final class SessionStore {
     // Token cost cache: jsonlPath → (mtime, summary)
     private var costCache: [String: CostCacheEntry] = [:]
     private var loadTask: Task<Void, Never>?
+    private var activeLoadGeneration = 0
     private var costCalculationTask: Task<Void, Never>?
 
     struct CostCacheEntry: Codable {
@@ -265,14 +266,16 @@ final class SessionStore {
 
     private func performLoadSessions() async {
         loadTask?.cancel()
+        activeLoadGeneration += 1
+        let generation = activeLoadGeneration
         let task = Task {
-            await loadSessions()
+            await loadSessions(loadGeneration: generation)
         }
         loadTask = task
         await task.value
     }
 
-    private func loadSessions() async {
+    private func loadSessions(loadGeneration generation: Int) async {
         if isRunningTests && environment.isUITesting {
             loadMockData(referenceDate: environment.now, sessionCount: environment.mockSessionCount)
             return
@@ -281,14 +284,18 @@ final class SessionStore {
             return
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == activeLoadGeneration else { return }
 
         isLoading = true
         error = nil
-        defer { isLoading = false }
+        defer {
+            if generation == activeLoadGeneration {
+                isLoading = false
+            }
+        }
 
         await AppLogger.measureAsync("load sessions") {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == activeLoadGeneration else { return }
             let defaults = UserDefaults.standard
             let showAll = !defaults.bool(forKey: "activeOnly")
             let showSidechains = defaults.bool(forKey: "showSidechains")
@@ -307,13 +314,13 @@ final class SessionStore {
                 ? codexService.fetchRateLimits(showSidechains: showSidechains)
                 : nil
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == activeLoadGeneration else { return }
 
             var discovered = await claudeSessionsTask + codexSessionsTask
             codexUsage = await codexLimitsTask
             discovered.sort { $0.startedAt > $1.startedAt }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == activeLoadGeneration else { return }
 
             // Apply cached costs immediately
             for i in discovered.indices {
@@ -334,7 +341,7 @@ final class SessionStore {
             }
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == activeLoadGeneration else { return }
 
         // Calculate uncached costs in background, update sessions incrementally
         costCalculationTask?.cancel()

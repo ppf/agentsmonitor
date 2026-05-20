@@ -154,7 +154,7 @@ actor CodexSessionService {
         let sessionsDir = codexDir.appendingPathComponent("sessions")
         guard fileManager.fileExists(atPath: sessionsDir.path) else { return nil }
 
-        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: true)
+        let dateDirs = recentDateDirectories(baseDir: sessionsDir, showAll: false)
         var runningFile: URL?
         var runningMtime: Date = .distantPast
         var fallbackFile: URL?

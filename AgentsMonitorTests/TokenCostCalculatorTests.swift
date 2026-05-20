@@ -310,13 +310,15 @@ final class ClaudeSessionServiceTests: XCTestCase {
         let (service, projectDir, _) = try makeClaudeFixture()
 
         let sessionId = "12345678-1234-1234-1234-123456789abc"
+        let jsonlURL = projectDir.appendingPathComponent("\(sessionId).jsonl")
+        try "{}".write(to: jsonlURL, atomically: true, encoding: .utf8)
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let indexJSON = """
         {
           "version": 1,
           "entries": [{
             "sessionId": "\(sessionId)",
-            "fullPath": "/tmp/session.jsonl",
+            "fullPath": "\(jsonlURL.path)",
             "fileMtime": \(nowMs),
             "firstPrompt": "Fix the auth bug",
             "summary": "Auth fix",
@@ -343,14 +345,20 @@ final class ClaudeSessionServiceTests: XCTestCase {
     func testDiscoverSessionsExcludesSidechainsWhenDisabled() async throws {
         let (service, projectDir, _) = try makeClaudeFixture()
 
+        let mainId = "12345678-1234-1234-1234-123456789001"
+        let sideId = "12345678-1234-1234-1234-123456789002"
+        let mainPath = projectDir.appendingPathComponent("\(mainId).jsonl")
+        let sidePath = projectDir.appendingPathComponent("\(sideId).jsonl")
+        try "{}".write(to: mainPath, atomically: true, encoding: .utf8)
+        try "{}".write(to: sidePath, atomically: true, encoding: .utf8)
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let indexJSON = """
         {
           "version": 1,
           "entries": [
             {
-              "sessionId": "12345678-1234-1234-1234-123456789001",
-              "fullPath": "/tmp/main.jsonl",
+              "sessionId": "\(mainId)",
+              "fullPath": "\(mainPath.path)",
               "fileMtime": \(nowMs),
               "firstPrompt": "Main",
               "summary": "Main session",
@@ -362,8 +370,8 @@ final class ClaudeSessionServiceTests: XCTestCase {
               "isSidechain": false
             },
             {
-              "sessionId": "12345678-1234-1234-1234-123456789002",
-              "fullPath": "/tmp/side.jsonl",
+              "sessionId": "\(sideId)",
+              "fullPath": "\(sidePath.path)",
               "fileMtime": \(nowMs),
               "firstPrompt": "Side",
               "summary": "Side session",
@@ -383,5 +391,35 @@ final class ClaudeSessionServiceTests: XCTestCase {
 
         XCTAssertEqual(sessions.count, 1)
         XCTAssertEqual(sessions.first?.name, "Main session")
+    }
+
+    func testDiscoverSessionsRejectsPathsOutsideProjectsTree() async throws {
+        let (service, projectDir, _) = try makeClaudeFixture()
+
+        let sessionId = "12345678-1234-1234-1234-123456789099"
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let indexJSON = """
+        {
+          "version": 1,
+          "entries": [{
+            "sessionId": "\(sessionId)",
+            "fullPath": "/etc/passwd",
+            "fileMtime": \(nowMs),
+            "firstPrompt": "Evil",
+            "summary": "Should be skipped",
+            "messageCount": 1,
+            "created": "2026-04-11T10:00:00.000Z",
+            "modified": "2026-04-11T10:05:00.000Z",
+            "gitBranch": null,
+            "projectPath": "/Users/test",
+            "isSidechain": false
+          }]
+        }
+        """
+        try indexJSON.write(to: projectDir.appendingPathComponent("sessions-index.json"), atomically: true, encoding: .utf8)
+
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertTrue(sessions.isEmpty)
     }
 }

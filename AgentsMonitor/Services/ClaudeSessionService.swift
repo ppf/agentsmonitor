@@ -140,6 +140,10 @@ actor ClaudeSessionService {
                 AppLogger.logWarning("Skipping session \(entry.sessionId): invalid UUID", context: "ClaudeSessionService")
                 return nil
             }
+            guard let jsonlPath = validatedSessionJSONLPath(entry.fullPath) else {
+                AppLogger.logWarning("Skipping session \(entry.sessionId): invalid session path", context: "ClaudeSessionService")
+                return nil
+            }
 
             let isRecent = isRecentlyModified(entry: entry)
             let status: SessionStatus = isRecent ? .running : .completed
@@ -153,7 +157,7 @@ actor ClaudeSessionService {
                 endedAt: status == .completed ? entry.modifiedDate : nil,
                 metrics: SessionMetrics(apiCalls: entry.messageCount),
                 workingDirectory: entry.projectPath.map { URL(fileURLWithPath: $0) },
-                jsonlPath: entry.fullPath,
+                jsonlPath: jsonlPath,
                 projectPath: entry.projectPath,
                 gitBranch: entry.gitBranch,
                 firstPrompt: entry.firstPrompt,
@@ -296,6 +300,26 @@ actor ClaudeSessionService {
     }
 
     // MARK: - Helpers
+
+    private var projectsRoot: URL {
+        claudeDir.appendingPathComponent("projects").standardizedFileURL
+    }
+
+    private func validatedSessionJSONLPath(_ fullPath: String) -> String? {
+        guard !fullPath.isEmpty else { return nil }
+
+        let candidate = URL(fileURLWithPath: fullPath).resolvingSymlinksInPath().standardizedFileURL
+        guard candidate.pathExtension.lowercased() == "jsonl" else { return nil }
+        guard isPath(candidate, under: projectsRoot) else { return nil }
+        guard fileManager.isReadableFile(atPath: candidate.path) else { return nil }
+        return candidate.path
+    }
+
+    private func isPath(_ url: URL, under root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let childPath = url.standardizedFileURL.path
+        return childPath == rootPath || childPath.hasPrefix(rootPath + "/")
+    }
 
     private func isRecentlyModified(entry: ClaudeSessionEntry) -> Bool {
         // fileMtime is milliseconds since epoch
