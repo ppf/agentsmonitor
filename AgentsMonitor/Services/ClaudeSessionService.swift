@@ -78,9 +78,9 @@ actor ClaudeSessionService {
     private let fileManager = FileManager.default
     private let claudeDir: URL
 
-    init() {
-        let home = FileUtilities.realHomeDirectory()
-        self.claudeDir = URL(fileURLWithPath: home).appendingPathComponent(".claude")
+    init(claudeDir: URL? = nil) {
+        self.claudeDir = claudeDir ?? URL(fileURLWithPath: FileUtilities.realHomeDirectory())
+            .appendingPathComponent(".claude")
     }
 
     func discoverSessions(showAll: Bool, showSidechains: Bool, now: Date = Date()) async -> [Session] {
@@ -123,12 +123,10 @@ actor ClaudeSessionService {
             return []
         }
 
-        // Filter sidechains
         if !showSidechains {
             allEntries = allEntries.filter { !$0.isSidechain }
         }
 
-        // Convert to sessions with status detection.
         // Heuristic: sessions modified within last 30 minutes (1800s) are considered active/running,
         // since we can't reliably correlate OS processes to specific sessions.
         var sessions = allEntries.compactMap { entry -> Session? in
@@ -138,6 +136,10 @@ actor ClaudeSessionService {
             }
             guard let sessionUUID = UUID(uuidString: entry.sessionId) else {
                 AppLogger.logWarning("Skipping session \(entry.sessionId): invalid UUID", context: "ClaudeSessionService")
+                return nil
+            }
+            guard let jsonlPath = validatedSessionJSONLPath(entry.fullPath) else {
+                AppLogger.logWarning("Skipping session \(entry.sessionId): invalid session path", context: "ClaudeSessionService")
                 return nil
             }
 
@@ -153,7 +155,7 @@ actor ClaudeSessionService {
                 endedAt: status == .completed ? entry.modifiedDate : nil,
                 metrics: SessionMetrics(apiCalls: entry.messageCount),
                 workingDirectory: entry.projectPath.map { URL(fileURLWithPath: $0) },
-                jsonlPath: entry.fullPath,
+                jsonlPath: jsonlPath,
                 projectPath: entry.projectPath,
                 gitBranch: entry.gitBranch,
                 firstPrompt: entry.firstPrompt,
@@ -163,14 +165,11 @@ actor ClaudeSessionService {
             )
         }
 
-        // Filter: active-only unless showAll
         if !showAll {
             sessions = sessions.filter { $0.status == .running }
         }
 
-        // Sort by most recent first
         sessions.sort { $0.startedAt > $1.startedAt }
-
         return sessions
     }
 
@@ -255,7 +254,6 @@ actor ClaudeSessionService {
 
         guard let timestamp = firstTimestamp else { return nil }
 
-        // File mtime
         let attrs = try? fileManager.attributesOfItem(atPath: file.path)
         let mtime: Date = (attrs?[.modificationDate] as? Date) ?? Date()
         let fileMtime = Int64(mtime.timeIntervalSince1970 * 1000)
@@ -297,8 +295,27 @@ actor ClaudeSessionService {
 
     // MARK: - Helpers
 
+    private var projectsRoot: URL {
+        claudeDir.appendingPathComponent("projects").standardizedFileURL
+    }
+
+    private func validatedSessionJSONLPath(_ fullPath: String) -> String? {
+        guard !fullPath.isEmpty else { return nil }
+
+        let candidate = URL(fileURLWithPath: fullPath).resolvingSymlinksInPath().standardizedFileURL
+        guard candidate.pathExtension.lowercased() == "jsonl" else { return nil }
+        guard isPath(candidate, under: projectsRoot) else { return nil }
+        guard fileManager.isReadableFile(atPath: candidate.path) else { return nil }
+        return candidate.path
+    }
+
+    private func isPath(_ url: URL, under root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let childPath = url.standardizedFileURL.path
+        return childPath == rootPath || childPath.hasPrefix(rootPath + "/")
+    }
+
     private func isRecentlyModified(entry: ClaudeSessionEntry, asOf now: Date) -> Bool {
-        // fileMtime is milliseconds since epoch
         let mtimeSeconds = TimeInterval(entry.fileMtime) / 1000.0
         let mtimeDate = Date(timeIntervalSince1970: mtimeSeconds)
         return now.timeIntervalSince(mtimeDate) < 1800

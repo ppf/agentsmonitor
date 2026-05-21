@@ -8,10 +8,12 @@ struct Session: Identifiable, Hashable {
     var agentType: AgentType
     var startedAt: Date
     var endedAt: Date?
+    // Reserved for a future detail view; not populated by read-only discovery today.
     var messages: [Message]
     var toolCalls: [ToolCall]
     var metrics: SessionMetrics
     var workingDirectory: URL?
+    // Reserved for process/terminal integration; unused in menu-bar monitor mode.
     var processId: Int32?
     var errorMessage: String?
     var isExternalProcess: Bool

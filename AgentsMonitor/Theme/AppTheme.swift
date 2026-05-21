@@ -4,6 +4,14 @@ import AppKit
 typealias AppColor = SwiftUI.Color
 
 enum AppTheme {
+    static let popoverWidth: CGFloat = 320
+
+    static let hoverBackground: AppColor = AppColor.accentColor.opacity(0.1)
+    static let progressTrackBackground: AppColor = AppColor.gray.opacity(0.2)
+    static let secondaryAction: AppColor = .blue
+    static let warningIcon: AppColor = .orange
+    static let gitBranchBadge: AppColor = .secondary
+
     // MARK: - Session Status Colors
 
     static let statusColors: [SessionStatus: AppColor] = [
@@ -118,15 +126,11 @@ enum AppTheme {
         }
     }
 
-    // MARK: - Utilization (usage bars)
-
     static func utilizationColor(_ value: Double) -> AppColor {
         if value > 0.9 { return statusColors[.failed] ?? .red }
         if value > 0.7 { return statusColors[.waiting] ?? .orange }
         return statusColors[.running] ?? .green
     }
-
-    static let progressTrackBackground: AppColor = AppColor.gray.opacity(0.2)
 }
 
 // MARK: - Environment Key for Code Font Size

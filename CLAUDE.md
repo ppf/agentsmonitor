@@ -4,6 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Test Commands
 
+**Requires full Xcode** (not Command Line Tools only):
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
 ### Opening & Running
 ```bash
 # Open Xcode project
@@ -19,68 +25,67 @@ open AgentsMonitor/AgentsMonitor.xcodeproj
 # Run all tests (requires full Xcode, not just Command Line Tools)
 xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS"
 
+# Unit tests only (CI default)
+xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests
+
 # Run specific test class
 xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests
 
 # Run single test method
-xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests/testCreateSession
+xcodebuild test -project AgentsMonitor/AgentsMonitor.xcodeproj -scheme AgentsMonitor -destination "platform=macOS" -only-testing:AgentsMonitorTests/SessionStoreTests/testSelectedSessionReturnsCorrectSession
 ```
+
+### CI
+- **GitHub Actions:** `.github/workflows/macos-tests.yml` — unit tests on `macos-latest`
+- **Local full suite:** `./scripts/ci.sh` (UI preflight + all tests). See [UI_TESTING.md](UI_TESTING.md)
 
 ## Architecture Overview
 
 ### State Management: @Observable Pattern (Not Redux/TCA)
-This app uses Swift 5.9+ `@Observable` macro for state management. **Do not wrap stores in StateObject** - inject directly via `@Environment`:
+This app uses Swift 5.9+ `@Observable` on a `@MainActor` store. **Do not wrap stores in StateObject** — inject via `@Environment`:
 
 ```swift
-// Correct pattern
 @Environment(SessionStore.self) private var sessionStore
 @Bindable var store = sessionStore  // For two-way binding
-
-// Don't do this (old ObservableObject pattern)
-@StateObject var sessionStore = SessionStore()
 ```
 
-**Key principle:** SessionStore is the single source of truth. All session state flows through it, triggering UI updates automatically.
+**Key principle:** `SessionStore` is the single source of truth for session list, selection, usage data, and aggregates.
 
 ### Data Flow Architecture
 ```
-ClaudeSessionService (actor) -> reads ~/.claude/projects/*/sessions-index.json
+ClaudeSessionService (actor)  ──┐
+CodexSessionService (actor)   ──┼──> SessionStore (@MainActor @Observable)
+AnthropicUsageService (actor) ──┘         │
+TokenCostCalculator (sync)    ────────────┘ (background cost tasks)
     |
-SessionStore (@Observable) -> State + TokenCostCalculator + AnthropicUsageService
-    |
-Views (@Environment) -> Reactive UI with timer-based refresh
+MenuBarMainView / MenuBarSettingsView (@Environment, timer refresh when active)
 ```
 
 **SessionStore responsibilities:**
-- Session discovery via Claude Code session files
-- Token cost calculation and caching (keyed by fileMtime)
-- Usage limit fetching via Anthropic OAuth API
-- Aggregate stats (tokens, cost, runtime, average duration)
+- Parallel discovery from Claude + Codex (UserDefaults: `activeOnly`, `showSidechains`, source toggles)
+- Serialized loads via `loadTask` (cancel superseded refresh)
+- Token cost calculation and caching (keyed by `jsonlPath` + `fileMtime`)
+- Usage limits (Anthropic OAuth) and Codex rate limits
+- Aggregate stats (7-day tokens/cost per tab, runtime, averages)
 
 ### Dependency Injection Pattern
-SessionStore uses constructor injection for testability:
-
 ```swift
-// Production (in AgentsMonitorApp.swift)
-let environment = AppEnvironment.current
-let sessionStore = SessionStore(environment: environment)
+// Production (AgentsMonitorApp.swift)
+let sessionStore = SessionStore(environment: AppEnvironment.current)
 
-// Testing (in SessionStoreTests.swift)
-let environment = AppEnvironment(
-    isUITesting: false,
-    isUnitTesting: true,
-    mockSessionCount: nil,
-    fixedNow: nil
-)
-let store = SessionStore(environment: environment)
+// Testing
+let store = SessionStore(environment: SessionStoreTestSupport.unitTestEnvironment())
+// or with usage spy:
+let store = SessionStoreTestSupport.makeStore(usageService: spy)
+try await SessionStoreTestSupport.waitForMockSessions(in: store)
 ```
 
-**Key insight:** `AppEnvironment` controls test behavior. `isUnitTesting = true` loads mock data and skips disk I/O. `isUITesting = true` loads mock data with a fixed date for deterministic snapshots.
+**AppEnvironment:** `isUnitTesting` loads `#if DEBUG` mock data and skips disk I/O; `isUITesting` uses fixed clock + optional large mock list (see UI_TESTING.md).
 
 ## Testing Patterns
 
 ### SessionStore Tests
-**Always use `@MainActor`** because SessionStore performs UI-bound mutations:
+**Always use `@MainActor`** — the store is main-actor isolated:
 
 ```swift
 @MainActor
@@ -88,181 +93,143 @@ final class SessionStoreTests: XCTestCase {
     var store: SessionStore!
 
     override func setUp() async throws {
-        let environment = AppEnvironment(
-            isUITesting: false,
-            isUnitTesting: true,
-            mockSessionCount: nil,
-            fixedNow: nil
-        )
-        store = SessionStore(environment: environment)
-        try await Task.sleep(nanoseconds: 200_000_000)  // Allow mock load
+        store = SessionStore(environment: SessionStoreTestSupport.unitTestEnvironment())
+        try await SessionStoreTestSupport.waitForMockSessions(in: store)
     }
 }
 ```
 
-### Test Organization
-- **SessionStoreTests**: Selection, computed properties, error handling, loading state
-- **SessionStoreAggregateTests**: Aggregate stats (tokens, cost, runtime, averages)
-- **SessionStoreClearAllTests**: Clear all + aggregate reset verification
-- **Model tests**: SessionModelTests, ToolCallModelTests, MessageModelTests, SessionMetricsTests (incl. cost/modelName/contextWindow)
-- **AgentTypeDecodingTests**: Flexible decoding of agent type and session status variants
-- **TokenCostCalculatorTests**: JSONL parsing, cost calculation, model name formatting
-- **Pattern**: Create minimal fixtures in tests, verify state changes (not implementation)
+### Test Organization (in `AgentsMonitorTests/`)
+- **SessionStoreTests** — selection, filters, usage refresh/cancellation, visible sessions
+- **SessionStoreAggregateTests** — aggregates, formatting
+- **SessionStoreClearAllTests** — clear all + cache file removal
+- **Model tests** — Session, ToolCall, Message, SessionMetrics, decoding
+- **TokenCostCalculatorTests** — Claude + Codex JSONL pricing
+- **CodexSessionServiceTests** — temp-dir discovery fixtures
+- **ClaudeSessionServiceTests** — temp-dir `sessions-index.json` fixtures
+- **AnthropicUsageParsingTests** — error strings, utilization helper
+
+**Pattern:** Minimal fixtures, assert behavior; prefer `SessionStoreTestSupport` and service temp directories over fixed `Task.sleep`.
 
 ## Services
 
 ### ClaudeSessionService
-**Actor-based** session discovery. Reads Claude Code's own session index files:
-
 ```swift
 actor ClaudeSessionService {
+    init(claudeDir: URL? = nil)  // inject for tests
     func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session]
 }
 ```
 
-- Scans `~/.claude/projects/*/sessions-index.json` for session entries
-- Determines running status via file mtime heuristic: sessions modified within last 30 minutes (1800s) are "running", otherwise "completed"
-- Extracts session name from `summary` field, falling back to `firstPrompt` prefix, then short session ID
-- Supports filtering: `showAll` toggles active-only vs all sessions, `showSidechains` includes/excludes sidechain sessions
+- Scans `~/.claude/projects/*/sessions-index.json` (+ JSONL fallback in project dirs)
+- **Running heuristic:** `fileMtime` within last **30 minutes** (1800s) → `.running`, else `.completed`
+- Name from `summary` → `firstPrompt` prefix → short session ID
+
+### CodexSessionService
+```swift
+actor CodexSessionService {
+    init(codexDir: URL? = nil)  // inject for tests
+    func discoverSessions(showAll: Bool, showSidechains: Bool) async -> [Session]
+    func fetchRateLimits(showSidechains: Bool) async -> CodexRateLimits?
+}
+```
+
+- Scans `~/.codex/sessions/YYYY/MM/DD/*.jsonl`
+- **Last 7 days** when `showAll == false`; **all date directories** when `showAll == true`
+- Rate limits from most recent running (or fallback) session JSONL
 
 ### TokenCostCalculator
-**Synchronous** JSONL parser for cost calculation:
-
 ```swift
 struct TokenCostCalculator {
-    static func calculate(jsonlPath: String) -> SessionTokenSummary?
+    static func calculate(jsonlPath: String) -> SessionTokenSummary?       // Claude: sum assistant usage
+    static func calculateCodex(jsonlPath: String) -> CodexSessionSummary?  // Codex: last token_count event
 }
 ```
 
-- Parses Claude Code JSONL conversation files (`~/.claude/projects/*/sessions/*.jsonl`)
-- Extracts `assistant` message entries with `usage` blocks (input, output, cache write, cache read tokens)
-- Calculates cost from built-in pricing table (Opus 4, Sonnet 4, Haiku 4), falls back to Sonnet pricing for unknown models
-- Returns `SessionTokenSummary` with token counts, cost, model name, API call count
-
-**Cost caching:** SessionStore caches results keyed by `jsonlPath` + `fileMtime`. Only recalculates when file changes.
+**Cost caching:** `SessionStore` caches by `jsonlPath` + `fileMtime`; persists to `~/.claude/agents-monitor-cost-cache.json`.
 
 ### AnthropicUsageService
-**Actor-based** usage limit fetcher:
+Implements `UsageServiceProviding` for tests. OAuth via Keychain (`Claude Code-credentials`) or `~/.claude/.credentials.json` → `https://api.anthropic.com/api/oauth/usage`.
 
-```swift
-actor AnthropicUsageService {
-    func fetchUsage() async throws -> AnthropicUsage
-}
-```
+**Usage refresh cancellation:** `fetchUsageData()` ignores `CancellationError`, `URLError.cancelled`, and `NSURLErrorCancelled` — keeps stale usage, clears no error.
 
-- Reads OAuth credentials from macOS Keychain via `security` CLI (service: "Claude Code-credentials"), falling back to `~/.claude/.credentials.json`
-- Calls `https://api.anthropic.com/api/oauth/usage` with Bearer token
-- Returns `AnthropicUsage` with 5-hour window, 7-day window, 7-day Sonnet window, and extra usage data
-- Throws `UsageServiceError` (.noCredentials, .authExpired, .networkError, .parseError)
+## Data Sources (read-only)
 
-## Data Source
+| Data | Location |
+|------|----------|
+| Claude session index | `~/.claude/projects/{project}/sessions-index.json` |
+| Claude/Codex JSONL | Paths from index or Codex rollout files |
+| Codex sessions | `~/.codex/sessions/YYYY/MM/DD/*.jsonl` |
+| Cost cache | `~/.claude/agents-monitor-cost-cache.json` |
+| OAuth credentials | Keychain or `~/.claude/.credentials.json` |
 
-The app is **read-only** against Claude Code's own files. No app-owned persistence layer:
-
-- **Session index:** `~/.claude/projects/{project}/sessions-index.json`
-- **Conversation JSONL:** Referenced via `fullPath` in session entries
-- **OAuth credentials:** macOS Keychain or `~/.claude/.credentials.json`
+No app-owned session persistence or terminal I/O.
 
 ## Theming System
 
-**AppTheme.swift** is the single source of truth for all colors, fonts, spacing. Never hardcode colors in views:
+**AppTheme.swift** — colors, spacing, `popoverWidth`, `utilizationColor(for:)`, status/agent colors. Prefer theme tokens over raw `.blue` / `.green` in views.
 
 ```swift
-// Correct
-.foregroundColor(AppTheme.statusColor(for: session.status))
-.background(AppTheme.roleBackgroundColor(for: message.role))
-
-// Don't do this
-.foregroundColor(.blue)
-.background(.gray.opacity(0.1))
+.foregroundStyle(AppTheme.statusColor(for: session.status))
+.frame(width: AppTheme.popoverWidth)
 ```
 
-**Theme enums:**
-- `FontSize`: small/medium/large with CGFloat values
-- `Spacing`: small/medium/large/extraLarge constants
-- `CornerRadius`: small/medium/large values
-- `Animation`: fast/normal/slow durations
+Enums: `Spacing`, `CornerRadius`, `FontSize`, `Animation` — used in menu bar views.
 
 ## Accessibility Requirements
 
-All icon buttons **must** have labels and hints:
+All icon/action buttons **must** have `.accessibilityLabel()` and `.accessibilityHint()` (see `MenuBarButton`, settings back button, session expand rows, pickers).
 
-```swift
-// Correct
-Button { action() } label: {
-    Image(systemName: "play.fill")
-}
-.accessibilityLabel("Resume session")
-.accessibilityHint("Resumes the paused agent session")
+**Status:** Color + `PulsatingStatusDot` (not color alone).
 
-// Don't ship without labels
-Button { action() } label: {
-    Image(systemName: "play.fill")
-}
-```
+## Important Conventions When Modifying Code
 
-**Status indicators:** Always pair color with icon (colorblind safe).
+- **Serialized refresh:** `performLoadSessions()` cancels the previous `loadTask` before starting a new load.
+- **Settings → refresh:** Changes to `activeOnly`, `showSidechains`, `codexEnabled`, or `claudeCodeEnabled` must call `sessionStore.refresh()` (see `MenuBarSettingsView`).
+- **Cost cache:** Background `costCalculationTask` updates sessions incrementally; `saveCostCache()` after batch.
+- **Navigation:** `MenuBarView` uses a `ZStack` with `isActive` so main view state and timers pause on the settings page.
+- **New `SessionStatus`:** Update enum, `AppTheme.statusColors`, and `MenuBarMainView` / `PulsatingStatusDot`.
 
 ## Common Modification Patterns
-
-### Adding a New SessionStatus
-1. Update `SessionStatus` enum in `Models/Session.swift`
-2. Add computed property in SessionStore (e.g., `var archiveSessions`)
-3. Add color mapping in `AppTheme.statusColors`
-4. Update `MenuBarMainView` to display new status
-
-### Adding a New Tool Call Icon
-Update `ToolCall.icon` computed property in `Models/ToolCall.swift`:
-```swift
-var icon: String {
-    switch name.lowercased() {
-    case "newTool": return "wrench.and.screwdriver"
-    // ... existing cases
-    }
-}
-```
 
 ### Adding a New Model to Pricing
 Update `TokenCostCalculator.pricingTable` and `formatModelName()` in `Services/TokenCostCalculator.swift`.
 
+### Adding a Tool Call Icon (reserved model fields)
+Update `ToolCall.icon` in `Models/ToolCall.swift` if a future detail UI uses tool calls.
+
 ## Logging Strategy
 
-**Use AppLogger, not print():**
-```swift
-// Structured logging
-AppLogger.logWarning("message", context: "ComponentName")
-AppLogger.logError(error, context: "ComponentName")
-
-// Performance timing
-AppLogger.measure("loadSessions") { ... }
-await AppLogger.measureAsync("fetchData") { ... }
-```
+Use **AppLogger** only (`logWarning`, `logError`, `measure`, `measureAsync`) — no `print()`.
 
 ## Known Limitations
 
-1. **Running detection is heuristic-based:** Uses file mtime (30-minute / 1800s threshold) since we can't reliably correlate OS processes to specific sessions
-2. **Token costs require JSONL parsing:** First load can be slow for sessions with large conversation files; mitigated by mtime-based caching
+1. **Running detection:** File mtime heuristic (30 min), not process-linked.
+2. **JSONL parse cost:** Large files can slow first load; mtime cache + `Task.detached` background work help.
+3. **Codex token totals:** Last `token_count` event only — multi-turn sessions may under-report vs Claude’s summed usage.
 
 ## App Architecture
 
-This is a **menu-bar-only** macOS app (no main window, no Dock icon). The entire UI lives in a `MenuBarExtra(.window)` popover.
+**Menu-bar-only** — no `WindowGroup`, no Dock icon (`LSUIElement`).
 
-- `Info.plist` has `LSUIElement = true` (hides from Dock/Cmd-Tab)
-- `AgentsMonitorApp.swift` uses only `MenuBarExtra` scene (no `WindowGroup`)
-- `MenuBarView` is a page router: main <-> settings
-- `MenuBarMainView`: expandable session rows + usage stats (aggregate tokens, cost, runtime)
-- `MenuBarSettingsView`: inline settings (General, Appearance, Connection)
+- `AgentsMonitorApp.swift` — `MenuBarExtra` + environment injection
+- `MenuBarView` — `ZStack` toggles main vs settings (`isActive` gates refresh timers)
+- `MenuBarMainView` — sessions, usage bars, source tabs, 7-day aggregates
+- `MenuBarSettingsView` — General (filters, sources, refresh), Appearance (theme)
 
 ## File Navigation Guide
 
-**App entry point:** `App/AgentsMonitorApp.swift` (MenuBarExtra-only, DI setup)
-**State management:** `ViewModels/SessionStore.swift` (single source of truth, aggregate stats, cost caching)
-**Session discovery:** `Services/ClaudeSessionService.swift` (actor, reads session-index.json files)
-**Token costs:** `Services/TokenCostCalculator.swift` (JSONL parser, pricing table)
-**Usage API:** `Services/AnthropicUsageService.swift` (actor, OAuth + Keychain)
-**Logging:** `Services/Logger.swift` (AppLogger)
-**Theme/styling:** `Theme/AppTheme.swift` (all colors, fonts, spacing)
-**Models:** `Models/Session.swift`, `Models/Message.swift`, `Models/ToolCall.swift`, `Models/AppEnvironment.swift`
-**Menu bar root:** `Views/MainWindow/MenuBarView.swift` (page router + shared components)
-**Main popover:** `Views/MenuBar/MenuBarMainView.swift` (sessions + usage stats)
-**Inline settings:** `Views/MenuBar/MenuBarSettingsView.swift` (General, Appearance, Connection)
+| Area | Path |
+|------|------|
+| App entry | `App/AgentsMonitorApp.swift` |
+| State | `ViewModels/SessionStore.swift` |
+| Claude discovery | `Services/ClaudeSessionService.swift` |
+| Codex discovery | `Services/CodexSessionService.swift` |
+| Token costs | `Services/TokenCostCalculator.swift` |
+| Usage API | `Services/AnthropicUsageService.swift` |
+| Logging | `Services/Logger.swift` |
+| Theme | `Theme/AppTheme.swift` |
+| Models | `Models/Session.swift`, `Message.swift`, `ToolCall.swift`, `AppEnvironment.swift` |
+| Menu shell | `Views/MainWindow/MenuBarView.swift` |
+| Main UI | `Views/MenuBar/MenuBarMainView.swift` |
+| Settings | `Views/MenuBar/MenuBarSettingsView.swift` |

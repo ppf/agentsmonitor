@@ -190,9 +190,9 @@ final class TokenCostCalculatorCodexTests: XCTestCase {
 }
 
 final class CodexSessionServiceTests: XCTestCase {
-    func testDiscoverSessionsTreatsCodexDesktopSourceAsMainSession() async throws {
+    private func makeCodexFixture() throws -> (service: CodexSessionService, dateDir: URL, tempRoot: URL) {
         let tempRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex_sessions_\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("codex_fixture_\(UUID().uuidString)", isDirectory: true)
         let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
         let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
         let calendar = Calendar.current
@@ -203,7 +203,13 @@ final class CodexSessionServiceTests: XCTestCase {
             .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
 
         try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: tempRoot) }
+
+        return (CodexSessionService(codexDir: codexDir), dateDir, tempRoot)
+    }
+
+    func testDiscoverSessionsTreatsCodexDesktopSourceAsMainSession() async throws {
+        let (service, dateDir, _) = try makeCodexFixture()
 
         let sessionId = "550e8400-e29b-41d4-a716-446655440000"
         let jsonl = [
@@ -214,7 +220,6 @@ final class CodexSessionServiceTests: XCTestCase {
         let fileURL = dateDir.appendingPathComponent("rollout-\(sessionId).jsonl")
         try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let service = CodexSessionService(codexDir: codexDir)
         let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
 
         XCTAssertEqual(sessions.count, 1)
@@ -223,19 +228,7 @@ final class CodexSessionServiceTests: XCTestCase {
     }
 
     func testDiscoverSessionsParsesLargeSessionMetaLine() async throws {
-        let tempRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex_large_meta_\(UUID().uuidString)", isDirectory: true)
-        let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
-        let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day], from: Date())
-        let dateDir = sessionsDir
-            .appendingPathComponent(String(format: "%04d", components.year ?? 2026), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
-
-        try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let (service, dateDir, _) = try makeCodexFixture()
 
         let sessionId = "550e8400-e29b-41d4-a716-446655440010"
         let largeInstructions = String(repeating: "Codex metadata can be long. ", count: 900)
@@ -247,7 +240,6 @@ final class CodexSessionServiceTests: XCTestCase {
         let fileURL = dateDir.appendingPathComponent("rollout-\(sessionId).jsonl")
         try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let service = CodexSessionService(codexDir: codexDir)
         let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
 
         XCTAssertEqual(sessions.count, 1)
@@ -256,19 +248,7 @@ final class CodexSessionServiceTests: XCTestCase {
     }
 
     func testFetchRateLimitsIgnoresSidechainFilesWhenSidechainsAreHidden() async throws {
-        let tempRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("codex_limits_\(UUID().uuidString)", isDirectory: true)
-        let codexDir = tempRoot.appendingPathComponent(".codex", isDirectory: true)
-        let sessionsDir = codexDir.appendingPathComponent("sessions", isDirectory: true)
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day], from: Date())
-        let dateDir = sessionsDir
-            .appendingPathComponent(String(format: "%04d", components.year ?? 2026), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
-
-        try FileManager.default.createDirectory(at: dateDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let (service, dateDir, _) = try makeCodexFixture()
 
         let mainFile = try writeCodexSession(
             in: dateDir,
@@ -287,7 +267,6 @@ final class CodexSessionServiceTests: XCTestCase {
         )
         _ = sidechainFile
 
-        let service = CodexSessionService(codexDir: codexDir)
         let limits = await service.fetchRateLimits(showSidechains: false)
 
         XCTAssertEqual(limits?.primary.utilization ?? 0, 0.10, accuracy: 0.001)
@@ -309,5 +288,138 @@ final class CodexSessionServiceTests: XCTestCase {
         try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: fileURL.path)
         return fileURL
+    }
+}
+
+// MARK: - Claude Session Discovery Tests
+
+final class ClaudeSessionServiceTests: XCTestCase {
+    private func makeClaudeFixture(projectName: String = "my-project") throws -> (service: ClaudeSessionService, projectDir: URL, tempRoot: URL) {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude_fixture_\(UUID().uuidString)", isDirectory: true)
+        let claudeDir = tempRoot.appendingPathComponent(".claude", isDirectory: true)
+        let projectDir = claudeDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(projectName, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: tempRoot) }
+        return (ClaudeSessionService(claudeDir: claudeDir), projectDir, tempRoot)
+    }
+
+    func testDiscoverSessionsReadsSessionsIndex() async throws {
+        let (service, projectDir, _) = try makeClaudeFixture()
+
+        let sessionId = "12345678-1234-1234-1234-123456789abc"
+        let jsonlURL = projectDir.appendingPathComponent("\(sessionId).jsonl")
+        try "{}".write(to: jsonlURL, atomically: true, encoding: .utf8)
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let indexJSON = """
+        {
+          "version": 1,
+          "entries": [{
+            "sessionId": "\(sessionId)",
+            "fullPath": "\(jsonlURL.path)",
+            "fileMtime": \(nowMs),
+            "firstPrompt": "Fix the auth bug",
+            "summary": "Auth fix",
+            "messageCount": 3,
+            "created": "2026-04-11T10:00:00.000Z",
+            "modified": "2026-04-11T10:05:00.000Z",
+            "gitBranch": "main",
+            "projectPath": "/Users/test/project",
+            "isSidechain": false
+          }]
+        }
+        """
+        try indexJSON.write(to: projectDir.appendingPathComponent("sessions-index.json"), atomically: true, encoding: .utf8)
+
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.name, "Auth fix")
+        XCTAssertEqual(sessions.first?.agentType, .claudeCode)
+        XCTAssertEqual(sessions.first?.status, .running)
+        XCTAssertFalse(sessions.first?.isSidechain ?? true)
+    }
+
+    func testDiscoverSessionsExcludesSidechainsWhenDisabled() async throws {
+        let (service, projectDir, _) = try makeClaudeFixture()
+
+        let mainId = "12345678-1234-1234-1234-123456789001"
+        let sideId = "12345678-1234-1234-1234-123456789002"
+        let mainPath = projectDir.appendingPathComponent("\(mainId).jsonl")
+        let sidePath = projectDir.appendingPathComponent("\(sideId).jsonl")
+        try "{}".write(to: mainPath, atomically: true, encoding: .utf8)
+        try "{}".write(to: sidePath, atomically: true, encoding: .utf8)
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let indexJSON = """
+        {
+          "version": 1,
+          "entries": [
+            {
+              "sessionId": "\(mainId)",
+              "fullPath": "\(mainPath.path)",
+              "fileMtime": \(nowMs),
+              "firstPrompt": "Main",
+              "summary": "Main session",
+              "messageCount": 1,
+              "created": "2026-04-11T10:00:00.000Z",
+              "modified": "2026-04-11T10:05:00.000Z",
+              "gitBranch": null,
+              "projectPath": "/Users/test",
+              "isSidechain": false
+            },
+            {
+              "sessionId": "\(sideId)",
+              "fullPath": "\(sidePath.path)",
+              "fileMtime": \(nowMs),
+              "firstPrompt": "Side",
+              "summary": "Side session",
+              "messageCount": 1,
+              "created": "2026-04-11T10:00:00.000Z",
+              "modified": "2026-04-11T10:05:00.000Z",
+              "gitBranch": null,
+              "projectPath": "/Users/test",
+              "isSidechain": true
+            }
+          ]
+        }
+        """
+        try indexJSON.write(to: projectDir.appendingPathComponent("sessions-index.json"), atomically: true, encoding: .utf8)
+
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.name, "Main session")
+    }
+
+    func testDiscoverSessionsRejectsPathsOutsideProjectsTree() async throws {
+        let (service, projectDir, _) = try makeClaudeFixture()
+
+        let sessionId = "12345678-1234-1234-1234-123456789099"
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let indexJSON = """
+        {
+          "version": 1,
+          "entries": [{
+            "sessionId": "\(sessionId)",
+            "fullPath": "/etc/passwd",
+            "fileMtime": \(nowMs),
+            "firstPrompt": "Evil",
+            "summary": "Should be skipped",
+            "messageCount": 1,
+            "created": "2026-04-11T10:00:00.000Z",
+            "modified": "2026-04-11T10:05:00.000Z",
+            "gitBranch": null,
+            "projectPath": "/Users/test",
+            "isSidechain": false
+          }]
+        }
+        """
+        try indexJSON.write(to: projectDir.appendingPathComponent("sessions-index.json"), atomically: true, encoding: .utf8)
+
+        let sessions = await service.discoverSessions(showAll: true, showSidechains: false)
+
+        XCTAssertTrue(sessions.isEmpty)
     }
 }

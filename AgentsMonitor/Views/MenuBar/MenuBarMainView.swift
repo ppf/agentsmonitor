@@ -9,6 +9,7 @@ struct MenuBarMainView: View {
     @AppStorage("claudeCodeEnabled") private var claudeCodeEnabled = true
 
     let navigateToSettings: () -> Void
+    var isActive: Bool = true
 
     @State private var expandedSessionId: UUID?
     @AppStorage("selectedSourceTab") private var selectedSourceTabRaw: String = SessionSourceTab.all.rawValue
@@ -19,14 +20,7 @@ struct MenuBarMainView: View {
     private let usageRefreshInterval: Double = 60.0
 
     private var availableSourceTabs: [SessionSourceTab] {
-        var tabs: [SessionSourceTab] = [.all]
-        if codexEnabled {
-            tabs.append(.codex)
-        }
-        if claudeCodeEnabled {
-            tabs.append(.claudeCode)
-        }
-        return tabs
+        [.all] + (codexEnabled ? [.codex] : []) + (claudeCodeEnabled ? [.claudeCode] : [])
     }
 
     private var filteredSessions: [Session] {
@@ -38,21 +32,19 @@ struct MenuBarMainView: View {
     }
 
     private var filteredRunningCount: Int {
-        filteredSessions.filter { $0.status == .running }.count
+        sessionStore.runningCount(
+            for: selectedSourceTab,
+            codexEnabled: codexEnabled,
+            claudeCodeEnabled: claudeCodeEnabled
+        )
     }
 
-    private var sevenDaySessions: [Session] {
-        let now = appEnvironment.now
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-        return filteredSessions.filter { $0.startedAt >= cutoff }
-    }
-
-    private var filteredAggregateTokens: Int {
-        sevenDaySessions.reduce(0) { $0 + $1.metrics.totalTokens }
-    }
-
-    private var filteredAggregateCost: Double {
-        sevenDaySessions.reduce(0) { $0 + $1.metrics.cost }
+    private var sevenDayAggregates: (tokens: Int, cost: Double) {
+        sessionStore.sevenDayAggregates(
+            for: selectedSourceTab,
+            codexEnabled: codexEnabled,
+            claudeCodeEnabled: claudeCodeEnabled
+        )
     }
 
     private var areAllSourcesDisabled: Bool {
@@ -61,7 +53,6 @@ struct MenuBarMainView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             HStack {
                 Text("Agents Monitor")
                     .font(.headline)
@@ -98,7 +89,7 @@ struct MenuBarMainView: View {
             usageLimitsSection
 
             Divider()
-                .padding(.vertical, 4)
+                .padding(.vertical, AppTheme.Spacing.small)
 
             ScrollView {
                 sessionsSection
@@ -107,13 +98,12 @@ struct MenuBarMainView: View {
 
             Divider()
 
-            // Actions
             VStack(spacing: 0) {
                 MenuBarButton(
                     title: "Refresh",
                     icon: "arrow.clockwise",
                     identifier: "menuBar.action.refresh",
-                    hint: "Reloads sessions and usage data"
+                    hint: "Reloads sessions and usage limits"
                 ) {
                     Task {
                         await sessionStore.refreshAll()
@@ -126,7 +116,7 @@ struct MenuBarMainView: View {
                     title: "Settings...",
                     icon: "gearshape",
                     identifier: "menuBar.action.settings",
-                    hint: "Opens app settings"
+                    hint: "Opens application settings"
                 ) {
                     navigateToSettings()
                 }
@@ -141,27 +131,32 @@ struct MenuBarMainView: View {
                 }
             }
         }
-        .frame(width: 320)
-        .task(id: refreshInterval) {
-            guard refreshInterval > 0 else { return }
+        .task(id: "\(isActive)-\(refreshInterval)") {
+            guard isActive, refreshInterval > 0 else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(refreshInterval))
+                do {
+                    try await Task.sleep(for: .seconds(refreshInterval))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled, isActive else { break }
                 await sessionStore.refresh()
             }
         }
-        .task(id: usageRefreshInterval) {
-            guard usageRefreshInterval > 0 else { return }
+        .task(id: "\(isActive)-usage-\(usageRefreshInterval)-\(claudeCodeEnabled)") {
+            guard isActive, usageRefreshInterval > 0, claudeCodeEnabled else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(usageRefreshInterval))
+                do {
+                    try await Task.sleep(for: .seconds(usageRefreshInterval))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled, isActive, claudeCodeEnabled else { break }
                 await sessionStore.fetchUsageData()
             }
         }
-        .onChange(of: codexEnabled) { _, _ in
-            syncSelectedTabWithAvailability()
-        }
-        .onChange(of: claudeCodeEnabled) { _, _ in
-            syncSelectedTabWithAvailability()
-        }
+        .onChange(of: codexEnabled) { _, _ in syncSelectedTabWithAvailability() }
+        .onChange(of: claudeCodeEnabled) { _, _ in syncSelectedTabWithAvailability() }
         .onChange(of: selectedSourceTabRaw) { _, _ in
             expandedSessionId = nil
         }
@@ -180,8 +175,7 @@ struct MenuBarMainView: View {
                 .padding(.top, 8)
 
             VStack(alignment: .leading, spacing: 6) {
-                // Claude Code usage
-                if selectedSourceTab == .all || selectedSourceTab == .claudeCode {
+                if claudeCodeEnabled && (selectedSourceTab == .all || selectedSourceTab == .claudeCode) {
                     if let usage = sessionStore.usageData {
                         usageBar(label: "5-hour", utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
                         usageBar(label: "7-day", utilization: usage.sevenDay.utilization, resetsAt: usage.sevenDay.resetsAt)
@@ -193,6 +187,7 @@ struct MenuBarMainView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(AppTheme.statusColor(for: .waiting))
                                 .font(.caption)
+                                .accessibilityHidden(true)
                             Text(usageError)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -209,7 +204,6 @@ struct MenuBarMainView: View {
                     }
                 }
 
-                // Codex usage
                 if selectedSourceTab == .all || selectedSourceTab == .codex {
                     if let codex = sessionStore.codexUsage {
                         usageBar(label: "Codex 5hr", utilization: codex.primary.utilization, resetsAt: codex.primary.resetsAt, tint: AppTheme.agentTypeColor(for: .codex))
@@ -219,15 +213,14 @@ struct MenuBarMainView: View {
             }
             .padding(.horizontal)
 
-            // 7-day aggregate cost
             HStack(spacing: 4) {
                 Text("7d")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 HStack(spacing: 12) {
-                    Label(SessionStore.formatCost(filteredAggregateCost), systemImage: "dollarsign.circle")
+                    Label(SessionStore.formatCost(sevenDayAggregates.cost), systemImage: "dollarsign.circle")
                         .font(.caption)
-                    Label(SessionStore.formatTokenCount(filteredAggregateTokens), systemImage: "number")
+                    Label(SessionStore.formatTokenCount(sevenDayAggregates.tokens), systemImage: "number")
                         .font(.caption)
                 }
             }
@@ -240,6 +233,7 @@ struct MenuBarMainView: View {
     private func usageBar(label: String, utilization: Double, resetsAt: String?, tint: Color? = nil) -> some View {
         let clampedUtilization = min(max(utilization, 0), 1)
         let barColor = tint ?? AppTheme.utilizationColor(utilization)
+        let percentLabel = "\(Int((utilization * 100).rounded())) percent"
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(label)
@@ -265,35 +259,32 @@ struct MenuBarMainView: View {
                 }
             }
             .frame(height: 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(label) usage")
+            .accessibilityValue(percentLabel)
         }
     }
 
     private func formatResetTime(_ iso: String) -> String {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-
-        guard let date = fractional.date(from: iso) ?? plain.date(from: iso) else {
+        guard let date = ISO8601Parsers.date(from: iso) else {
             return iso
         }
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: appEnvironment.now)
     }
 
     // MARK: - Sessions Section
 
     @ViewBuilder
     private var sessionsSection: some View {
-        let allSessions = filteredSessions
-
         if areAllSourcesDisabled {
             VStack(spacing: 8) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.title2)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 Text("No agent sources enabled")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -303,7 +294,7 @@ struct MenuBarMainView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-        } else if sessionStore.isLoading && allSessions.isEmpty {
+        } else if sessionStore.isLoading && filteredSessions.isEmpty {
             VStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
@@ -313,11 +304,12 @@ struct MenuBarMainView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-        } else if allSessions.isEmpty {
+        } else if filteredSessions.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.title2)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 Text("No sessions found")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -335,7 +327,7 @@ struct MenuBarMainView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 4)
 
-            ForEach(allSessions.prefix(20)) { session in
+            ForEach(filteredSessions.prefix(20)) { session in
                 MenuBarExpandableSessionRow(
                     session: session,
                     isExpanded: expandedSessionId == session.id,
@@ -347,8 +339,8 @@ struct MenuBarMainView: View {
                 )
             }
 
-            if allSessions.count > 20 {
-                Text("+\(allSessions.count - 20) more")
+            if filteredSessions.count > 20 {
+                Text("+\(filteredSessions.count - 20) more")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
@@ -393,7 +385,24 @@ struct MenuBarMainView: View {
             selectedSourceTab = .all
         }
     }
+}
 
+private enum ISO8601Parsers {
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    static func date(from string: String) -> Date? {
+        fractional.date(from: string) ?? plain.date(from: string)
+    }
 }
 
 private extension SessionSourceTab {
@@ -480,6 +489,8 @@ struct MenuBarExpandableSessionRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(session.name)
             .accessibilityHint(isExpanded ? "Collapse session details" : "Expand session details")
+            .accessibilityValue("Status \(session.status.rawValue)")
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("menuBar.sessionRow")
 
             if isExpanded {
@@ -537,6 +548,7 @@ struct MenuBarExpandableSessionRow: View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption2)
+                .accessibilityHidden(true)
             Text(text)
                 .lineLimit(1)
         }
@@ -565,7 +577,7 @@ struct PulsatingStatusDot: View {
                 .frame(width: 8, height: 8)
         }
         .frame(width: 14, height: 14)
-        .accessibilityLabel("Session \(status.rawValue)")
+        .accessibilityHidden(true)
         .onAppear {
             if status == .running {
                 isPulsing = true
